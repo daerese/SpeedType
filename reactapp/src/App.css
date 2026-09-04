@@ -1,0 +1,227 @@
+
+
+#root {
+    max-width: 1280px;
+    margin: 0 auto;
+    /* font-size: 1.25rem; */
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+/* * Typography */
+
+
+/* * Other top level styles */
+
+button {
+    display: block;
+    font-size: inherit;
+    transition-duration: 200ms;
+}
+
+
+
+/* ************** */
+/* * Typer and Words */
+
+.letter {
+    margin: 0 .6px;
+}
+
+.words {
+    /* display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;*/
+    font-size: 1.3rem;
+    word-spacing: .1rem;
+}
+
+.word {
+    display: inline-flex;
+}
+
+/* * Text colors */
+
+.correct {
+    color: inherit;
+    opacity: .7;
+}
+
+.current-letter {
+    /* text-decoration: underline; */
+    border-left: 1.6px solid black;
+    animation: 1s ease 2s infinite caret;
+}
+
+.incorrect {
+    /* color: rgb(255, 0, 0); */
+    /* text-decoration: underline; */
+    background-color: rgba(255, 0, 0, 0.644);
+    box-shadow: 0 0 5px red;
+}
+
+/* ? Caret idle animation */
+@keyframes caret {
+
+    from {
+        border-left: 1.6px solid black;
+    }
+
+    50% {
+        border-left: 1.6px solid rgba(0, 0, 0, 0);
+    }
+
+    to {
+        border-left: 1.6px solid black;
+    }
+}
+
+/* ************** */
+/* * Players and progress */
+
+.progress-bar {
+    width: 100%;
+    appearance: none;
+    height: 2px;
+    background-color: rgba(0, 0, 0, 0.589);
+    /* background-color: ; */
+
+    margin-bottom: 12px;
+}
+
+.progress-bar::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    /* background: inherit; */
+
+    background: rgb(0, 0, 0);
+    /* background: attr(data-player-color); */
+    border-radius: 50%;
+    /* cursor: pointer; */
+}
+
+.progress-player-username {
+    font-weight: bold;
+    margin: 0;
+}
+
+.progress-player-container {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    /* border: 1px solid orange; */
+    gap: 12px;
+    margin-bottom: 1rem;
+}
+
+.slider-container {
+    width: 100%;
+}
+
+.a {
+    flex-grow: 1;
+    /* border: 1px solid red; */
+}
+
+.progress-player-img-container {
+    width: 50px;
+    height: 50px;
+    background: rgba(128, 128, 128, 0.342);
+    border-radius: 100%;
+}
+
+/* Profile Image style */
+.img-placeholder {
+    width: 100px;
+    height: 100px;
+    background: rgba(175, 175, 175, 1);
+    border-radius: 50%;
+}
+
+
+/* ************** */
+/* * Edit Profile page */
+
+/* File upload button */
+#file_input[type="file"]::file-selector-button {
+    border-radius: 8px;
+    padding: 0 16px;
+    height: 40px;
+    cursor: pointer;
+    font-weight: 500;
+    background-color: white;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    box-shadow: 0px 1px 0px rgba(0, 0, 0, 0.05);
+    margin-right: 16px;
+    transition: background-color;
+}
+
+/* file upload button hover state */
+#file_input[type="file"]::file-selector-button:hover {
+    background-color: #f3f4f6;
+}
+
+/* file upload button active state */
+#file_input[type="file"]::file-selector-button:active {
+    background-color: #e5e7eb;
+}
+
+input[type="file"]::file-selector-button {
+
+}
+
+
+/* ************** */
+/* * Typing Animation */
+.animate-text {
+    padding-right: 1rem;
+    overflow: hidden;
+    border-right: 16px solid;
+    /*    animation: 1s ease 2s infinite caret-alt;*/
+    white-space: nowrap;
+    animation: typing 250ms steps(15, end), caret-alt .75s step-end infinite;
+    /*should be added as an inline style to include the character length of the text */
+    /*    animation-name: typing;
+    animation-duration: 2s;
+    animation-iteration-count: infinite;*/
+}
+
+.animate-loading-text {
+/*    padding-right: 1rem;*/
+    overflow: hidden;
+    border-right: 12px solid;
+    /*    animation: 1s ease 2s infinite caret-alt;*/
+    white-space: nowrap;
+    animation: typing 1s steps(10, end), caret-alt .75s step-end infinite;
+}
+
+.loading-text-container {
+    transform: translate(-50%, -50%);
+}
+
+@keyframes caret-alt {
+
+    50% { border-color: transparent }
+
+}
+
+@keyframes typing {
+    
+/*    from {width: 0}*/
+/*    to {width: 100%}*/
+
+    0% {
+        width: 0;
+    }
+
+/*    30%, 100% {
+        width: 100%;
+    }*/
+
+    100% {
+        width: 100%;
+    }
+}
