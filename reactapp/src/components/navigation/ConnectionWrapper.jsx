@@ -32,7 +32,7 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
     const urlParams = useParams()
 
-    const { isAuthenticated, getAccessTokenSilently } = useAuth0()
+    const { isAuthenticated, getAccessTokenSilently, loginWithRedirect } = useAuth0()
 
     const [connectionLoading, setConnectionLoading] = useState(true)
 
@@ -94,11 +94,23 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
                     // * 2026: The accessTokenFactory is used to get the access token from
                     // * Auth0 and send it to the server (SignalR) for authentication.
                     accessTokenFactory: async () => {
-                        return await getAccessTokenSilently({
-                            authorizationParams: {
-                                audience: "https://localhost:7229"
+                        try {
+                            return await getAccessTokenSilently({
+                                authorizationParams: {
+                                    audience: "https://localhost:7229"
+                                }
+                            });
+                        }
+                        catch (e) {
+                            // * 2026: Auth0 can't renew the token in the background when the user
+                            // * needs to log in again or accept consent (always required on localhost).
+                            // * Send them to the Auth0 login page instead of leaving them stuck on the loading screen.
+                            if (e.error === "consent_required" || e.error === "login_required") {
+                                console.log("Auth0 needs the user to log in again: ", e.error)
+                                await loginWithRedirect()
                             }
-                        });
+                            throw e
+                        }
                     },
 
                     skipNegotiation: true,
@@ -150,7 +162,7 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
                  */
 
 
-                console.log("Friends List Received: ", newFriendsList)
+                //console.log("Friends List Received: ", newFriendsList)
 
                 setFriendsList([...newFriendsList])
 
@@ -172,7 +184,7 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
                  * The initial method that is invoked to fill the friendRequests array 
                  */
 
-                console.log("Friend Requests Received: ", newFriendRequests)
+                //console.log("Friend Requests Received: ", newFriendRequests)
 
                 setFriendRequests([...newFriendRequests])
 
@@ -279,6 +291,10 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
     }
 
+    /************
+     * Functions to initialize and start the connection to the GameHub
+     ******************/
+
     const startConection = async () => {
 
         /**
@@ -320,6 +336,57 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
     }
 
+    //const initConnection = async (customServerListener = "", customClientFunction = null, initialConnection=null) => {
+    const initConnection = async (initialConnection = null) => {
+
+        /**
+         * The purpose of this function is to initialize the connection to the GameHub.
+         *
+         */
+
+        console.log("INIT CONNECTION CALLED")
+        console.log("Current connection state: ", connection)
+
+        if (!connection) {
+
+
+            // ? If on the profile page, the profile page should have its own connection instance,
+            // ? with custom events for that page/component
+            const newConnection = initialConnection ? initialConnection : await createConnection()
+
+            //if (customServerListener && customClientFunction) {
+
+
+            //    // ? If there is another listener event that needs to be added to the connection,
+            //    // ? It will be added on to the current connection here.
+            //    newConnection.on(customServerListener, (serverResponse) => {
+
+            //        customClientFunction(serverResponse)
+
+            //    })
+
+            //}
+
+            console.log(" THE CONNECTION BEING CREATED: ", newConnection)
+            console.log("NEW CONNECTION STATE: ", newConnection.state)
+
+            //if (initialConnection) {
+            //    console.log("THe profile connection passed to the wrapper: ", newConnection)
+            //    console.log("The state of connection passed to the wrapper: ", newConnection.state)
+            //}
+
+            setConnection(newConnection)
+            setConnectionState(newConnection.state)
+
+            console.log("setConnection() was called")
+
+        }
+    }
+
+
+    /************
+     * Functions related to user's friend requests and friends list
+     ******************/
     const updateFriendRequest = async (friendRequestObject) => {
 
         /**
@@ -386,46 +453,9 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
     }
 
-    //const initConnection = async (customServerListener = "", customClientFunction = null, initialConnection=null) => {
-    const initConnection = async (initialConnection = null) => {
-
-        /**
-         * The purpose of this function is to initialize the connection to the GameHub.
-         *
-         */
-        if (!connection) {
-
-
-            // ? If on the profile page, the profile page should have its own connection instance,
-            // ? with custom events for that page/component
-            const newConnection = initialConnection ? initialConnection : await createConnection()
-
-            //if (customServerListener && customClientFunction) {
-
-
-            //    // ? If there is another listener event that needs to be added to the connection,
-            //    // ? It will be added on to the current connection here.
-            //    newConnection.on(customServerListener, (serverResponse) => {
-
-            //        customClientFunction(serverResponse)
-
-            //    })
-
-            //}
-
-            console.log(" THE CONNECTION BEING CREATED: ", newConnection)
-
-            if (initialConnection) {
-                console.log("THe profile connection passed to the wrapper: ", newConnection)
-                console.log("The state of connection passed to the wrapper: ", newConnection.state)
-            }
-
-            setConnection(newConnection)
-            setConnectionState(newConnection.state)
-
-        }
-    }
-
+    /***************
+     * useEffects for updating friends list and friend requests
+     **************/
     useEffect(() => {
 
         if (friendRequestUpdating) {
@@ -437,7 +467,7 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
     useEffect(() => {
 
         /**
-         * This useEffect will use the friends list find out 
+         * This useEffect will use the friends list to find out 
          * which friends are online.
          */
 
@@ -446,8 +476,16 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
     }, [friendsList])
 
 
+
+    /************
+     * useEffects reltaed to the SignalR connection and the user's loading state.
+     ******************/
     // 1. Wait for auth0 to load the user
     useEffect(() => {
+
+        console.log("AUTH LOADING EFFECT");
+        console.log("authLoading:", authLoading);
+        console.log("userLoading:", userLoading);
 
         if (authLoading) {
 
@@ -474,7 +512,10 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
     // 2. After the user is loaded, we can than start the connection
     useEffect(() => {
 
-        
+        console.log("INIT CONNECTION EFFECT");
+        console.log("isAuthenticated:", isAuthenticated);
+        console.log("userLoading:", userLoading);
+        console.log("connection:", connection);
 
         // Auth0 is done loading
 
@@ -482,7 +523,7 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
             if (!userLoading) {
                 if (!connection) {
-
+                    console.log("CALLING initConnection()");
                     initConnection()
                     //if (!connectionStarting) {
                     //    setConnectionStarting(true)
@@ -501,15 +542,21 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
     useEffect(() => {
 
-
+        console.log("CONNECTION useEFFECT RAN")
+        console.log("THE CONNECTION: ", connection)
 
         
         
-        console.log(" the connection: ", connection)
+        //console.log(" the connection: ", connection)
 
         if (connection) {
 
+            console.log("CONNECTION EXISTS");
+            console.log("CONNECTION STATE: ", connection.state)
+
             if (connection.state === "Disconnected") {
+
+                console.log("CALLING startConnection()")
 
                 startConection()
             }
@@ -536,6 +583,15 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
         }
 
     }, [connectionState])
+
+    /************
+     * useEffects for testing
+     ******************/
+
+    useEffect(() => {
+        console.log("USER LOADING CHANGED:", userLoading);
+    }, [userLoading]);
+
 
     return (
 
@@ -611,6 +667,7 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
                         switch (page) {
                             case "home":
                                 return <HomePage
+                                    user={user}
                                     friendRequests={friendRequests}
                                     updateFriendRequest={initUpdateFriendRequest}
 
@@ -682,6 +739,7 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
                                     componentParams={{
                                         page: "profile",
                                         props: {
+                                            user: user,
                                             isPublic: false,
                                             connection: connection,
                                             friendsList: friendsList,

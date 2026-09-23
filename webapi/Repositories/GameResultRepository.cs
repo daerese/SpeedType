@@ -84,7 +84,8 @@ public class GameResultRepository
             Position = currUser.FinalResults.Position,
             StartDate = startDate.ToString(),
             Username = currUser.Username,
-            ProfilePicturePath = currUser.ProfileImg,
+            // The GameResults column doesn't allow null, but new users have no profile picture yet
+            ProfilePicturePath = currUser.ProfileImg ?? "",
             PlayerCount = currUser.FinalResults.PlayerCount,
             GameId = gameId
         };

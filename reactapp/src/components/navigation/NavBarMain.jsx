@@ -49,14 +49,14 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
     const [receivedFriendRequests, setReceivedFriendRequests] = useState([])
 
 
-    console.log("The friend requests FROM THE NAVBAR: ", friendRequests)
+    //console.log("The friend requests FROM THE NAVBAR: ", friendRequests)
 
     // AUth0
     const { user, isAuthenticated } = useAuth0();
 
     //const { isAuthenticated } = useAuth0();
 
-    console.log(isAuthenticated)
+    //console.log(isAuthenticated)
 
     //* Utility functions
 
@@ -103,7 +103,7 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
 
         if (friendRequests) {
 
-            console.log("Friend requests EFFECT TRIGGERED IN NAVBAR")
+            //console.log("Friend requests EFFECT TRIGGERED IN NAVBAR")
 
             let unviewedCount = 0
 

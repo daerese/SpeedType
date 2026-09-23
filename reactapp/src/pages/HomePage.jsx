@@ -25,9 +25,19 @@ import SignupButton from '../components/buttons/SignupButton.jsx';
 
 
 
-const HomePage = ({friendRequests, updateFriendRequest, invitesReceived, showInviteAlert, setShowInviteAlert }) => {
+const HomePage = ({ user, friendRequests, updateFriendRequest, invitesReceived, showInviteAlert, setShowInviteAlert }) => {
 
-    const { user, isAuthenticated, getAccessTokenSilently, getAccessTokenWithPopup, } = useAuth0();
+
+    /**
+     * HomePage
+     * 
+     * Displays the user's home page before/after logging in.
+     * 
+     * User authentication is handled by Auth0. 
+     * User is provided by the state 'db_user'
+     */
+
+    const { isAuthenticated, getAccessTokenSilently} = useAuth0();
 
     //const [profilePic, setProfilePic] = useState("https://i.pinimg.com/564x/88/31/6f/88316fdc2baabfccc92e4763c88ba1d8.jpg")
 
@@ -39,6 +49,13 @@ const HomePage = ({friendRequests, updateFriendRequest, invitesReceived, showInv
     const [statStyle, setStatStyle] = useState("")
 
     const [testState, setTestState] = useState(false)
+
+    /** 
+     * User information stored in the database but not in auth0 is now on the user object.
+     * It's accessed under what Auth0 calls a "custom claim" (https://speedtype.app/db_user)
+     * This includes static information such as username, stats, color, profile picture, etc.
+     * */
+    const [dbUser, setDbUser] = useState(user ? user["https://speedtype.app/db_user"] : null)
 
     //console.log(user)
 
@@ -169,7 +186,7 @@ const HomePage = ({friendRequests, updateFriendRequest, invitesReceived, showInv
                     <p
                         className="animate-text text-3xl font-bold mb-5"
                   
-                    >Welcome{user ? ", " + user.username : ", to SpeedType"}</p>
+                    >Welcome{dbUser ? ", " + dbUser.username : ", to SpeedType"}</p>
 
                 </div>
                 
@@ -381,6 +398,15 @@ const HomePage = ({friendRequests, updateFriendRequest, invitesReceived, showInv
                                 
 
                             </div>
+
+                            {/* Temporary User object tset */}
+
+                            <button
+                                onClick={() => console.log("User Object: ", user)}
+                                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                            >
+                                Show user object
+                            </button>
 
                      </>
 

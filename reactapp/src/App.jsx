@@ -25,6 +25,7 @@ function App() {
     const { isLoading, user, isAuthenticated } = useAuth0()
 
 
+
     return (
 
         <>

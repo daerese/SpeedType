@@ -14,6 +14,16 @@ import PageLayout from "../components/PageLayout.jsx"
 import { useLocation } from 'react-router-dom'
 import PrivateGameLoading from '../components/game/PrivateGameLoading';
 
+/**
+ * GamePage 
+ * 
+ * This is the main page for the game. It handles the matchmaking and private game logic. 
+ * It also handles the connection to the server and the game room state.
+ * 
+ * @param {any} param0
+ * @returns
+ */
+
 const GamePage = ({ isPrivateGame = false,
     parentConnection,
     gameRoom,
@@ -52,7 +62,7 @@ const GamePage = ({ isPrivateGame = false,
 
     const [profileImg, setProfileImg] = useState();
 
-    // Condition that determines whether the user wants to 
+    // NOTE: Condition that determines whether the user wants to 
     // immedietaly find a game upon rendering this component (navigating to this link)
     const [matchmaking, setMatchmaking] = useState(false)
 
@@ -64,16 +74,30 @@ const GamePage = ({ isPrivateGame = false,
 
     const [privateGameJoining, setPrivateGameJoining] = useState(false)
 
+
+    // NOTE: This Determines whether the host of a private game has left or not. 
+    // If the host has left, the game must be ended and the other users must be forced to leave.
     const [hostLeft, setHostLeft] = useState(false)
 
     //const [activeGames, setActiveGames] = useState([])
 
+    /**
+     * User information stored in the database but not in auth0 is now on the user object.
+     * It's accessed under what Auth0 calls a "custom claim" (https://speedtype.app/db_user)
+     * This includes static information such as username, stats, color, profile picture, etc.
+     * */
+    const [dbUser, setDbUser] = useState(user ? user["https://speedtype.app/db_user"] : null)
+
 
     useEffect(() => {
 
-        setCurrUsername(user.username)
-        setProfileImg(user.picture_url)
+        if (!user) return;
 
+        setCurrUsername(dbUser ? dbUser.username : null)
+        setProfileImg(dbUser ? dbUser.picture_url : null);
+
+        // NOTE: sub is the Auth0 user id. This identifier is NOT included on the
+        // dbUser object. 
         setCurrUserId(user.sub)
 
         
@@ -131,13 +155,16 @@ const GamePage = ({ isPrivateGame = false,
         }
 
 
-    }, [])
+    }, [user])
 
     useEffect(() => {
 
 
-
-        if (matchmaking && !privateGame) {
+        //* This effect runs the findRoom method only if
+        // - Matchmaking state is true
+        // - The user is not in a privateGame
+        // - The parentConnection isn't empty -- meaning we're connected to SignalR.
+        if (matchmaking && !privateGame && parentConnection && parentConnection.state === "Connected") {
 
             const executeFindRoom = async () => {
                 await findRoom(parentConnection)
@@ -148,7 +175,7 @@ const GamePage = ({ isPrivateGame = false,
         }
 
 
-    }, [matchmaking])
+    }, [matchmaking, privateGame, parentConnection])
 
     useEffect(() => {
 
@@ -303,7 +330,7 @@ const GamePage = ({ isPrivateGame = false,
     //    setInGame(true)
     //}
 
-    const findRoom = async (initialConnection) => {
+    const findRoom = async () => {
         /**
          * A function for matchmaking: Finds a game for the user to join.
          * 
@@ -314,7 +341,16 @@ const GamePage = ({ isPrivateGame = false,
         
 
         //await currConnection.invoke("FindRoom", { username, userId, color, currProfileImg, averageWpm })
-        await parentConnection.invoke("FindRoom", { userId })
+
+        // DEBUG: Confirms the browser actually sends FindRoom, and shows any server error
+        console.log("FINDROOM: invoking. userId:", userId, "connection state:", parentConnection.state)
+        try {
+            await parentConnection.invoke("FindRoom", { userId })
+            console.log("FINDROOM: server finished without errors")
+        }
+        catch (e) {
+            console.error("FINDROOM: server threw an error:", e)
+        }
 
 
         setMatchmaking(false)

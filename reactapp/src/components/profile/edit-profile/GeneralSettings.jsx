@@ -16,6 +16,11 @@ import { storage } from '../../../firebase.config';
 // Importing ref from firebase package
 import { ref, getDownloadURL, uploadBytes } from "firebase/storage";
 
+/**
+ * 
+ * @returns
+ */
+
 
 const GeneralSettings = () => {
 

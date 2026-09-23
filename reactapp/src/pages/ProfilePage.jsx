@@ -29,6 +29,7 @@ import RemoveFriendIcon from "../components/svgIcons/RemoveFriendIcon";
 import Spinner from "../components/utils/Spinner";
 
 const ProfilePage = ({
+    user,
     isPublic = false,
     publicUsername = null,
     connection,
@@ -55,7 +56,8 @@ const ProfilePage = ({
 
     const [publicUserObject, setPublicUserObject] = useState(null)
 
-    // Is this user a friend to the current user?
+    // NOTE: This variable is used to determine if the user displayed on this 
+    // profile page is a friend of the logged in user
     const [isFriend, setIsFriend] = useState(false)
 
     const [friendRequestSending, setFriendRequestSending] = useState(false)
@@ -92,7 +94,15 @@ const ProfilePage = ({
 
     const [friendsListEnd, setFriendsListEnd] = useState(false)
 
-    const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+    /** 
+     * User information stored in the database but not in auth0 is now on the user object.
+     * It's accessed under what Auth0 calls a "custom claim" (https://speedtype.app/db_user)
+     * This includes static information such as username, stats, color, profile picture, etc.
+     * */
+    const [dbUser, setDbUser] = useState(user ? user["https://speedtype.app/db_user"] : null)
+
+
+    const { isAuthenticated, getAccessTokenSilently } = useAuth0();
 
 
     console.log("Friends list on the PROFILE PAGE: ", friendsList)
@@ -150,11 +160,11 @@ const ProfilePage = ({
             //set the user profile picture
             //setProfileImg(user.picture_url)
 
-            setPreferredColor(user.preferred_color)
-            setBio(user.bio)
+            setPreferredColor(dbUser.preferred_color)
+            setBio(dbUser.bio)
 
-            if (user.stats) {
-                setStats(user.stats)
+            if (dbUser.stats) {
+                setStats(dbUser.stats)
             }
 
             getGames()

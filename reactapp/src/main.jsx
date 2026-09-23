@@ -16,12 +16,17 @@ const Root = () => {
                 //clientId="Gg6kHUxBcMsaY4COp7nsJhY8P84IBY3M"
                 domain="dev-ippqzudwhbjx1jrd.us.auth0.com"
                 clientId="KWZmfE4mBDF7rZmgm5FdSHwAZa0cwqlO"
+
+                // cacheLocation is used for storing the user's session in local storage instead of memory. 
+                // This allows the user to remain logged in even after refreshing the page or closing the browser.
+                cacheLocation = "localstorage"
+
                 authorizationParams={{
                     //audience: "https://dev-w5kn5y38eszy14v4.us.auth0.com/api/v2/",
                     audience: "https://localhost:7229",
                     redirect_uri: "https://localhost:5173",
                     //scope: "read:current_user update:current_user_metadata update:users",
-                    returnTo: "/"
+                    //returnTo: "/"
                 }}
             >
                 <App />

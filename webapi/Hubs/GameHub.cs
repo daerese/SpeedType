@@ -524,6 +524,8 @@ public class GameHub : Hub
 
     public async Task FindRoom(UserConnection userConnection)
     {
+        // DEBUG: Printed the moment the server receives a FindRoom call, before anything can fail
+        Console.WriteLine($"FINDROOM CALLED. UserId: {userConnection?.UserId}, Connection ID: {Context.ConnectionId}, Rooms in memory: {_gameRooms.Count}");
 
 
         // * Possible solution: get average WPM from the database
@@ -603,9 +605,12 @@ public class GameHub : Hub
                     // Does their average WPM fall in the range of this game?
                     if (hasAverageWpm)
                     {
-                        if (gameRoom.WpmRange != null &&
-                            userConnection.AverageWpm > gameRoom.WpmRange.Item1 &&
-                            userConnection.AverageWpm < gameRoom.WpmRange.Item2)
+                        // Inclusive (>= and <=) so a player on the edge of the range can still join.
+                        // EX: new players have 0 WPM and the range is (0, 30). With > instead of >=, 0 would be rejected.
+                        // A room with no WPM range accepts anyone.
+                        if (gameRoom.WpmRange == null ||
+                            (userConnection.AverageWpm >= gameRoom.WpmRange.Item1 &&
+                             userConnection.AverageWpm <= gameRoom.WpmRange.Item2))
                         {
 
                             userConnection.RoomId = gameRoom.RoomId;
