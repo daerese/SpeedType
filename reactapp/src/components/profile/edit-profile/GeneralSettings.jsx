@@ -10,6 +10,8 @@ import { updateUserMetadata, updateUser } from "../../../services/user.service";
 
 import PageLayout from "../../PageLayout";
 
+import { useDbUser } from "../../../context/DbUserContext.jsx";
+
 // Firebase 
 import { storage } from '../../../firebase.config';
 
@@ -25,6 +27,10 @@ import { ref, getDownloadURL, uploadBytes } from "firebase/storage";
 const GeneralSettings = () => {
 
     const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+
+    // * 2026: The user's current info from our database (see DbUserContext.jsx).
+    // * refreshDbUser() re-fetches it after saving, so the new bio/color/picture show everywhere.
+    const { dbUser, refreshDbUser } = useDbUser()
 
 
     // * States:
@@ -77,9 +83,9 @@ const GeneralSettings = () => {
 
     useEffect(() => {
 
-        setProfileImg(user.picture_url)
+        setProfileImg(dbUser?.profilePicturePath)
 
-    }, [user])
+    }, [dbUser])
 
     useEffect(() => {
 
@@ -162,8 +168,9 @@ const GeneralSettings = () => {
         //* Use a modal to change the picture. Only close the modal after a s
         //* successful upload.
 
+        // * NOTE: The backend ignores this userId and uses the one from the login token.
         const data = {
-            "username": user.username,
+            "username": dbUser.username,
             "userId": user.sub
         }
 
@@ -203,6 +210,9 @@ const GeneralSettings = () => {
 
         await updateUser(accessToken, data)
 
+        // * Get the updated info from the database so every page shows the changes
+        await refreshDbUser()
+
         // * reset the form
         setFormData(
             {
@@ -212,7 +222,7 @@ const GeneralSettings = () => {
             }
         )
 
-        //setTempImg(null);
+        setTempImg(null);
 
     }
 
@@ -222,7 +232,7 @@ const GeneralSettings = () => {
 
             // 1. Upload new picture to firebase 
 
-            const picturePath = `profile-pictures/${user.username}`
+            const picturePath = `profile-pictures/${dbUser.username}`
 
             const newImageRef = ref(storage, picturePath)
             
@@ -301,7 +311,7 @@ const GeneralSettings = () => {
 
                             <div className="flex gap-5 items-center">
                                 <Avatar
-                                    src={tempImg ? tempImg : user.picture_url}
+                                    src={tempImg ? tempImg : dbUser?.profilePicturePath}
                                     size={125}
                                 />
 
@@ -349,7 +359,7 @@ const GeneralSettings = () => {
                                 type="color"
                                 id="color-input"
                                 name="colorInput"
-                                value={formData.colorInput ? formData.colorInput : user.preferred_color}
+                                value={formData.colorInput ? formData.colorInput : (dbUser?.color || "#000000")}
                                 onChange={handleFormChange}
                             />
 

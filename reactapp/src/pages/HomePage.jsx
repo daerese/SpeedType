@@ -18,7 +18,11 @@ import Game from '../components/game/Game.jsx';
 
 import RecentGames from '../components/profile/RecentGames.jsx';
 
+import StatsGrid from '../components/profile/StatsGrid.jsx';
+
 import { getRecentGames } from '../services/user.service.jsx'
+
+import { useDbUser } from '../context/DbUserContext.jsx'
 
 import LoginButton from '../components/buttons/LoginButton.jsx';
 import SignupButton from '../components/buttons/SignupButton.jsx';
@@ -50,12 +54,12 @@ const HomePage = ({ user, friendRequests, updateFriendRequest, invitesReceived, 
 
     const [testState, setTestState] = useState(false)
 
-    /** 
-     * User information stored in the database but not in auth0 is now on the user object.
-     * It's accessed under what Auth0 calls a "custom claim" (https://speedtype.app/db_user)
-     * This includes static information such as username, stats, color, profile picture, etc.
+    /**
+     * 2026: The user's info from OUR database (username, stats, color, profile picture, etc.)
+     * comes from the shared DbUserContext, which asks the backend (/api/user/me) for the latest data.
+     * This replaced the Auth0 custom claim, which only updated when the user logged in again.
      * */
-    const [dbUser, setDbUser] = useState(user ? user["https://speedtype.app/db_user"] : null)
+    const { dbUser } = useDbUser()
 
     //console.log(user)
 
@@ -115,44 +119,38 @@ const HomePage = ({ user, friendRequests, updateFriendRequest, invitesReceived, 
 
 
     /***********
-     * THIS FUNCTION IS COMMENTED OUT TEMPORARILY FOR TESTING THE NEW AUTH0 CONFIGURATION (2026)
+     * 2026: Get the user's recent games from the database (re-enabled after the new Auth0 setup).
+     * user.sub is the Auth0 user id, which is also the UserId in our database.
      *************/
-    //useEffect(() => {
+    useEffect(() => {
 
+        if (!isAuthenticated || !user) return;
 
-    //    setStatStyle(
-    //        "flex justify-between font-semibold"
-    //    )
+        const getGames = async () => {
 
-    //     //* Get the user's recent games from the database.
+            try {
+                const accessToken = await getAccessTokenSilently()
 
-    //    const getGames = async () => {
+                const data = await getRecentGames(accessToken, user.sub)
 
+                const recentGames = data.data ? data.data : null
 
-    //        const accessToken = await getAccessTokenSilently()
+                if (recentGames) {
+                    setUserRecentGames([...recentGames.gameResults])
+                }
+            }
+            catch (e) {
+                console.error("Could not load recent games: ", e)
+            }
+            finally {
+                setUserGamesLoading(false)
+            }
 
-    //        console.log("Access Token: ", accessToken)
+        }
 
-    //        const data = await getRecentGames(accessToken, user.sub)
+        getGames()
 
-    //        const recentGames = data.data ? data.data : null
-
-    //        if (recentGames) {
-    //            setUserRecentGames([...recentGames.gameResults])
-    //        }
-
-    //        setUserGamesLoading(false)
-            
-
-    //        console.log("Acquired object from Server: ", data.data)
-
-    //    }
-
-    //    getGames()
-
-
-
-    //}, [])
+    }, [isAuthenticated, user])
 
 
     const testGameResult = (gameResult) => {
@@ -206,85 +204,54 @@ const HomePage = ({ user, friendRequests, updateFriendRequest, invitesReceived, 
 
                                 {/*user card container*/}
 
-                                    <a className="block cursor-pointer hover:shadow-lg rounded-xl duration-200"
+                                    <a className="block cursor-pointer hover:shadow-lg rounded-xl duration-200 mb-8"
                                        href="/profile">
 
-                                    <div className="border flex mb-8 items-center gap-3 p-3 rounded-xl"
-                                        style={{
-                                            backgroundColor: `${user.preferred_color}30`
-                                        }}
+                                    {/* The card is tinted with the user's preferred color (if they picked one) */}
+                                    <div className={`border rounded-xl p-4 ${dbUser?.color ? "" : "bg-gray-50"}`}
+                                        style={dbUser?.color ? { backgroundColor: `${dbUser.color}20` } : {}}
                                     >
 
-                                        {/*Image goes here*/}
+                                        <div className="flex items-center gap-3 mb-4">
+                                            <Avatar
+                                                src={dbUser?.profilePicturePath}
+                                                size={56}
+                                                noRing={true}
+                                            />
 
-
-                                        <Avatar
-                                            src={user.picture_url}
-                                            size={100}
-                                            noRing={true}
-                                        />
-
-                                        {/*Stats go here*/}
-                                        <div className="grow flex flex-col gap-2">
-
-                                            {user.stats ?
-
-                                                <>
-                                                    <div className={statStyle}>
-                                                        <p>Average WPM: </p>
-                                                        <p>{user.stats.averageWpm ? user.stats.averageWpm : "N/A"}</p>
-                                                    </div>
-                                                    <div className={statStyle}>
-                                                        <p>Average Accuracy (%): </p>
-                                                            <p>{user.stats.averageAccuracy ? user.stats.averageAccuracy : "N/A"}</p>
-                                                    </div>
-                                                    <div className={statStyle}>
-                                                        <p>Best WPM: </p>
-                                                            <p>{user.stats.bestWpm ? user.stats.bestWpm : "N/A"}</p>
-                                                    </div>
-                                                    <div className={statStyle}>
-                                                        <p>Games Played: </p>
-                                                        <p>{user.stats.gamesPlayed}</p>
-                                                    </div>
-
-                                                </>
-                                                :
-                                                <p>Your stats will show here after your first game</p>
-
-                                            }
-
-
+                                            <div>
+                                                <p className="font-semibold text-lg leading-tight">{dbUser?.username}</p>
+                                                <p className="text-sm text-gray-500">View profile →</p>
+                                            </div>
                                         </div>
 
-                                    </div>
+                                        <StatsGrid
+                                            stats={dbUser}
+                                            emptyMessage="Your stats will show here after your first game."
+                                        />
 
+                                    </div>
 
                                 </a>
 
                                 {/*links for finding a game*/}
-                                <div className="">
+                                <div className="flex flex-col gap-3">
 
-                                    <ul className="space-y-4 font-semibold block">
+                                    <a
+                                        href="/game"
+                                        className="block rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 duration-200"
+                                    >
+                                        <p className="font-semibold">Quick Play</p>
+                                        <p className="text-sm text-blue-100">Race other players online</p>
+                                    </a>
 
-                                        <li className="relative block w-full duration-200 before:content-[''] before:duration-200 before:block before:w-0 before:hover:w-full before:h-full before:bg-gray-300 before:absolute">
-                                            <a
-                                                    
-                                                    href="/game"
-                                                className="block relative border-l border-black pl-4 py-1 h-full w-full cursor"
-                                            >Quick Play</a>
-                                            
-                                        </li>
-                                        <li className="relative block w-full duration-200 before:content-[''] before:duration-200 before:block before:w-0 before:hover:w-full before:h-full before:bg-gray-300 before:absolute">
-                                            <a
-
-                                                href="/game/private"
-                                                className="block relative border-l border-black pl-4 py-1 h-full w-full cursor"
-                                            >Practice / Private Game</a>
-
-                                        </li>
-                                        
-
-                                    </ul>
+                                    <a
+                                        href="/game/private"
+                                        className="block rounded-xl border border-gray-300 hover:bg-gray-100 px-4 py-3 duration-200"
+                                    >
+                                        <p className="font-semibold">Practice / Private Game</p>
+                                        <p className="text-sm text-gray-500">Practice alone or invite friends</p>
+                                    </a>
 
                                 </div>
 
@@ -296,7 +263,7 @@ const HomePage = ({ user, friendRequests, updateFriendRequest, invitesReceived, 
                                     userRecentGames={userRecentGames}
                                     userGamesLoading={userGamesLoading}
                                     getAccessToken={getAccessTokenSilently}
-                                    currentUsername={user.username}
+                                    currentUsername={dbUser?.username}
                                 />
 
 
@@ -377,36 +344,6 @@ const HomePage = ({ user, friendRequests, updateFriendRequest, invitesReceived, 
 
 
                         
-
-                            <hr className="h-0.5 rounded-lg my-8 bg-gray-200">
-
-                            </hr>
-
-
-
-
-                            {/*other player stats*/}
-
-
-
-                            
-
-                            {/*Temporary Friend Requests Test*/}
-
-                            <div>
-
-                                
-
-                            </div>
-
-                            {/* Temporary User object tset */}
-
-                            <button
-                                onClick={() => console.log("User Object: ", user)}
-                                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                            >
-                                Show user object
-                            </button>
 
                      </>
 

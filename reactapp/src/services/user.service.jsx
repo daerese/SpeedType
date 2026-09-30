@@ -64,6 +64,28 @@ export const testAuth = async (accessToken) => {
  * Users
  */
 
+/**
+ * 2026: Gets the CURRENT logged-in user's latest data from the database.
+ * The backend figures out who the user is from the access token, so no userId is sent.
+ */
+export const getCurrentUser = async (accessToken) => {
+    const config = {
+        url: `${apiServerUrl}/api/user/me`,
+        method: "GET",
+        headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+        },
+    };
+
+    const { data, error } = await callExternalApi({ config });
+
+    return {
+        data: data || null,
+        error,
+    };
+};
+
 export const getUser = async (accessToken, userId) => {
     const config = {
         url: `${apiServerUrl}/api/user/get-user?userId=${userId}`,

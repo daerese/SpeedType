@@ -10,6 +10,8 @@ import { useAuth0, User,  } from "@auth0/auth0-react";
 
 import { getRecentGames, getPublicUser, getFriendObjects } from '../services/user.service';
 
+import { useDbUser } from '../context/DbUserContext.jsx'
+
 import PageLayout from "../components/PageLayout.jsx"
 import RecentGames from '../components/profile/RecentGames';
 
@@ -23,6 +25,8 @@ import { storage } from '../firebase.config';
 import { ref, getDownloadURL, uploadBytes } from "firebase/storage";
 
 import UserCard from "../components/profile/UserCard";
+
+import StatsGrid from "../components/profile/StatsGrid";
 
 import AddFriendIcon from "../components/svgIcons/AddFriendIcon";
 import RemoveFriendIcon from "../components/svgIcons/RemoveFriendIcon";
@@ -94,15 +98,16 @@ const ProfilePage = ({
 
     const [friendsListEnd, setFriendsListEnd] = useState(false)
 
-    /** 
-     * User information stored in the database but not in auth0 is now on the user object.
-     * It's accessed under what Auth0 calls a "custom claim" (https://speedtype.app/db_user)
-     * This includes static information such as username, stats, color, profile picture, etc.
+    /**
+     * 2026: The logged-in user's info from OUR database (username, stats, color, picture, bio)
+     * comes from the shared DbUserContext (/api/user/me), so it's always up to date.
+     *
+     * auth0User is the Auth0 user. We only use it for the user id (auth0User.sub).
+     * NOTE: The "user" prop isn't passed to public profiles, so don't rely on it.
      * */
-    const [dbUser, setDbUser] = useState(user ? user["https://speedtype.app/db_user"] : null)
+    const { dbUser } = useDbUser()
 
-
-    const { isAuthenticated, getAccessTokenSilently } = useAuth0();
+    const { isAuthenticated, getAccessTokenSilently, user: auth0User } = useAuth0();
 
 
     console.log("Friends list on the PROFILE PAGE: ", friendsList)
@@ -157,16 +162,8 @@ const ProfilePage = ({
 
         }
         else {
-            //set the user profile picture
-            //setProfileImg(user.picture_url)
-
-            setPreferredColor(dbUser.preferred_color)
-            setBio(dbUser.bio)
-
-            if (dbUser.stats) {
-                setStats(dbUser.stats)
-            }
-
+            // * The user's own color, bio and stats are set in the dbUser useEffect below,
+            // * because dbUser may still be loading at this point.
             getGames()
 
         }
@@ -199,6 +196,26 @@ const ProfilePage = ({
 
     }, [])
 
+
+    // * 2026: Fill in the logged-in user's own profile once their database info has loaded
+    useEffect(() => {
+
+        if (!isPublic && dbUser) {
+
+            setPreferredColor(dbUser.color)
+            setBio(dbUser.bio)
+
+            if (dbUser.gamesPlayed > 0) {
+                setStats({
+                    averageAccuracy: dbUser.averageAccuracy,
+                    averageWpm: dbUser.averageWpm,
+                    bestWpm: dbUser.bestWpm,
+                    gamesPlayed: dbUser.gamesPlayed
+                })
+            }
+        }
+
+    }, [dbUser])
 
     useEffect(() => {
 
@@ -435,7 +452,7 @@ const ProfilePage = ({
 
     const getGames = async (publicUserId = null, page=null) => {
 
-        const userId = publicUserId ? publicUserId : user.sub
+        const userId = publicUserId ? publicUserId : auth0User.sub
 
         const accessToken = await getAccessTokenSilently()
 
@@ -473,7 +490,7 @@ const ProfilePage = ({
                 console.log("USER OBJECT RECEIVED? ", userObj)
                 setPublicUserObject(userObj)
 
-                setPreferredColor(userObj.preferred_color)
+                setPreferredColor(userObj.color)
                 setBio(userObj.bio)
 
                 if (userObj.gamesPlayed > 0) {
@@ -528,14 +545,17 @@ const ProfilePage = ({
         if (connection) {
             console.log(`Friend request sending to --> ${toUserId}`)
 
-            const fromUserId = user.sub
-            const fromUsername = user.username
-            const fromProfilePicturePath = user.picture_url
+            const fromUserId = auth0User.sub
+            const fromUsername = dbUser.username
+
+            // * The FriendRequests table doesn't allow empty (null) pictures,
+            // * so users without a profile picture send an empty string instead.
+            const fromProfilePicturePath = dbUser.profilePicturePath ?? ""
 
             //await connection.invoke("SendFriendRequest", senderUserId, receiverUserId)
             await connection.invoke("SendFriendRequest",
                 fromUserId, fromUsername, fromProfilePicturePath,
-                toUserId, toUsername, toProfilePicture)
+                toUserId, toUsername, toProfilePicture ?? "")
             //await connection.invoke("SendFriendRequest", senderUserId)
 
         }
@@ -588,7 +608,7 @@ const ProfilePage = ({
 
         const friendUserIds = []
 
-        const userId = user.sub
+        const userId = auth0User.sub
 
         const accessToken = await getAccessTokenSilently()
 
@@ -651,20 +671,15 @@ const ProfilePage = ({
                         setShowInviteAlert={setShowInviteAlert}
                     >
 
-                        <div className="inline-block mb-3">
-                            <p className="font-medium text-2xl animate-text">{publicUserObject ? publicUserObject.username : user.username}</p>
-
-                        </div>
-
-                        {/*top part*/}
-                        <div className="flex items-center gap-3">
+                        {/*top part: picture, name, and profile/friend buttons*/}
+                        <div className="flex flex-wrap items-center gap-5">
 
                             <Avatar
                                 size={125}
                                 src={isPublic && publicUserObject ?
                                     publicUserObject.profilePicturePath
                                     :
-                                    user.picture_url}
+                                    dbUser?.profilePicturePath}
                             />
 
                             {/*<div className="inline-block">*/}
@@ -672,17 +687,11 @@ const ProfilePage = ({
 
                             {/*</div>*/}
 
-                            <div className="flex justify-center items-center gap-1">
-
-
-
-                               
-
-                                
-
+                            <div className="inline-block">
+                                <p className="font-semibold text-3xl animate-text">{publicUserObject ? publicUserObject.username : dbUser?.username}</p>
                             </div>
 
-                            <>
+                            <div className="ml-auto">
                             {
                                     isPublic ?
 
@@ -790,7 +799,7 @@ const ProfilePage = ({
                                     </Link>
                             }
 
-                            </>
+                            </div>
 
                             {/*<div*/}
                             {/*    className={`w-4 h-4 rounded-full mt-1`}*/}
@@ -806,12 +815,12 @@ const ProfilePage = ({
                                 
                                 <hr className="h-0.5 rounded-lg my-8 bg-gray-200"></hr>
                                 :
-                                <ul class="flex flex-wrap text-sm font-medium text-center text-gray-500 border-b border-gray-200 dark:border-gray-700 my-8 dark:text-gray-400">
+                                <ul className="flex flex-wrap text-sm font-medium text-center text-gray-500 border-b border-gray-200 dark:border-gray-700 my-8 dark:text-gray-400">
 
                                     {
-                                        tabs.map((tab, index) => 
+                                        tabs.map((tab, index) =>
 
-                                            <li class="me-2">
+                                            <li className="me-2" key={tab}>
                                                 <button
                                                     className={`inline-block p-4 rounded-t-lg 
                                                                 ${activeTab == index ? "text-blue-500 bg-gray-100" : "hover:text-gray-600 hover:bg-gray-50" }`}
@@ -887,52 +896,27 @@ const ProfilePage = ({
 
                                         {/*bio*/}
                                         <div
-                                            className="border px-3 rounded-lg py-4 col-span-full md:col-span-3 pr-10"
+                                            className="border rounded-lg p-4 col-span-full md:col-span-3"
                                         >
-                                            <p className="text-xl font-bold">Bio</p>
-                                            <p className="">
-                                                {bio ? bio : "No bio"}
+                                            <p className="text-xl font-bold mb-3">Bio</p>
+                                            <p className={bio ? "whitespace-pre-line" : "text-gray-500"}>
+                                                {bio ? bio : "No bio yet."}
                                             </p>
 
                                         </div>
 
                                         {/*stats*/}
-                                        <div className="bg-gray-200 rounded-lg py-4 px-2 col-span-full md:col-span-2">
+                                        <div className="bg-gray-50 border rounded-lg p-4 col-span-full md:col-span-2">
 
-                                            <p className="font-bold text-xl">Stats</p>
+                                            <p className="font-bold text-xl mb-3">Stats</p>
 
-                                            <div className="flex flex-col gap-y-2">
-
-
-                                                {stats ?
-
-                                                    <>
-                                                        <div className="flex justify-between">
-                                                            <p className="font-semibold">Average WPM: </p>
-                                                            <p className="font-semibold">{stats.averageWpm}</p>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <p className="font-semibold">Average Accuracy: </p>
-                                                            <p className="font-semibold">{stats.averageAccuracy}</p>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <p className="font-semibold">Best WPM: </p>
-                                                            <p className="font-semibold">{stats.bestWpm}</p>
-                                                        </div>
-                                                        <div className="flex justify-between">
-                                                            <p className="font-semibold">Games Played: </p>
-                                                            <p className="font-semibold">{stats.gamesPlayed}</p>
-                                                        </div>
-                                                    </>
+                                            <StatsGrid
+                                                stats={stats}
+                                                emptyMessage={isPublic ?
+                                                    "This player hasn't finished a game yet."
                                                     :
-                                                    <p className="font-semibold">Hey, this looks empty. Play your first game to view your stats.</p>
-
-                                                }
-
-
-                                            </div>
-
-
+                                                    "Hey, this looks empty. Play your first game to view your stats."}
+                                            />
 
                                         </div>
 
@@ -945,7 +929,7 @@ const ProfilePage = ({
                                         userGamesLoading={userGamesLoading}
                                         userRecentGames={userRecentGames}
                                         getAccessToken={getAccessTokenSilently}
-                                        currentUsername={user.username}
+                                        currentUsername={dbUser?.username}
                                     />
 
                                 </>

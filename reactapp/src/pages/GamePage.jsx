@@ -14,6 +14,8 @@ import PageLayout from "../components/PageLayout.jsx"
 import { useLocation } from 'react-router-dom'
 import PrivateGameLoading from '../components/game/PrivateGameLoading';
 
+import { useDbUser } from '../context/DbUserContext.jsx'
+
 /**
  * GamePage 
  * 
@@ -82,19 +84,23 @@ const GamePage = ({ isPrivateGame = false,
     //const [activeGames, setActiveGames] = useState([])
 
     /**
-     * User information stored in the database but not in auth0 is now on the user object.
-     * It's accessed under what Auth0 calls a "custom claim" (https://speedtype.app/db_user)
-     * This includes static information such as username, stats, color, profile picture, etc.
+     * 2026: The user's info from OUR database (username, picture, etc.)
+     * comes from the shared DbUserContext (/api/user/me). See DbUserContext.jsx.
      * */
-    const [dbUser, setDbUser] = useState(user ? user["https://speedtype.app/db_user"] : null)
+    const { dbUser } = useDbUser()
+
+    // * dbUser can finish loading after this page first renders, so keep these in sync with it
+    useEffect(() => {
+
+        setCurrUsername(dbUser ? dbUser.username : null)
+        setProfileImg(dbUser ? dbUser.profilePicturePath : null);
+
+    }, [dbUser])
 
 
     useEffect(() => {
 
         if (!user) return;
-
-        setCurrUsername(dbUser ? dbUser.username : null)
-        setProfileImg(dbUser ? dbUser.picture_url : null);
 
         // NOTE: sub is the Auth0 user id. This identifier is NOT included on the
         // dbUser object. 

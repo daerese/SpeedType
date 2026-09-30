@@ -4,6 +4,7 @@ import App from './App.jsx'
 import './index.css'
 
 import { Auth0Provider } from '@auth0/auth0-react';
+import { DbUserProvider } from './context/DbUserContext.jsx';
 
 
 
@@ -29,7 +30,10 @@ const Root = () => {
                     //returnTo: "/"
                 }}
             >
-                <App />
+                {/* 2026: Shares the logged-in user's database info with every page (see DbUserContext.jsx) */}
+                <DbUserProvider>
+                    <App />
+                </DbUserProvider>
             </Auth0Provider>
         </React.StrictMode>
     );

@@ -89,6 +89,38 @@ public class AccountController : Controller
     /******************************
      * User Routes
      * */
+
+    /**
+     * 2026: Returns the CURRENT logged-in user's info from the database.
+     *
+     * SIMPLE TERMS: "Who am I, and what's my latest data?"
+     * The frontend doesn't send a userId. The server reads it from the user's
+     * Auth0 login token (the "sub" value), so a user can only ever get their own data.
+     * This replaces reading stats/username/picture from the Auth0 custom claim,
+     * which only updates when the user logs in again.
+     * */
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> GetCurrentUser()
+    {
+        // * ASP.NET turns the token's "sub" (the Auth0 user id) into the NameIdentifier claim
+        string? userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized();
+        }
+
+        User user = await _userService.GetUserAsync(userId);
+
+        if (user == null)
+        {
+            return NotFound(new { Message = "No database user found for this account" });
+        }
+
+        return Ok(user);
+    }
+
     [HttpGet("get-user")]
     [Authorize]
     public async Task<IActionResult> GetUser([FromQuery] string userId)
@@ -136,6 +168,17 @@ public class AccountController : Controller
     {
 
         //User user = await _userService.GetUserAsync(userId);
+
+        // * 2026 SECURITY FIX: Always update the LOGGED-IN user (from their token),
+        // * never whatever userId the request sends. Otherwise anyone could edit anyone's profile.
+        string? tokenUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(tokenUserId))
+        {
+            return Unauthorized();
+        }
+
+        updatedUser.UserId = tokenUserId;
 
         Console.WriteLine($"User bio: \n{updatedUser.Bio}");
         Console.WriteLine($"User color: \n{updatedUser.Color}");
