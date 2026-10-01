@@ -20,6 +20,8 @@ import Game from '../game/Game';
 
 import { useAuth0 } from "@auth0/auth0-react";
 
+import { useDbUser } from '../../context/DbUserContext.jsx'
+
 const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
     /**
@@ -33,6 +35,9 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
     const urlParams = useParams()
 
     const { isAuthenticated, getAccessTokenSilently, loginWithRedirect } = useAuth0()
+
+    // * 2026: The user's database profile. The game connection waits for it (see the init effect below).
+    const { dbUser, dbUserLoading } = useDbUser()
 
     const [connectionLoading, setConnectionLoading] = useState(true)
 
@@ -521,7 +526,9 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
         if (isAuthenticated) {
 
-            if (!userLoading) {
+            // * 2026: Wait until the user's database profile exists (it's created on their
+            // * first login). Otherwise the game server's InitConnection can't find them.
+            if (!userLoading && dbUser) {
                 if (!connection) {
                     console.log("CALLING initConnection()");
                     initConnection()
@@ -532,12 +539,18 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
                 }
             }
 
+            // * If the profile couldn't be loaded or created, stop the loading screen
+            // * so the user isn't stuck forever (they can still log out).
+            else if (!userLoading && !dbUserLoading && !dbUser) {
+                setConnectionLoading(false)
+            }
+
         }
         else {
             setConnectionLoading(false)
         }
 
-    }, [userLoading])
+    }, [userLoading, dbUser, dbUserLoading])
 
 
     useEffect(() => {

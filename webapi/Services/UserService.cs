@@ -104,6 +104,79 @@ public class UserService
 
     }
 
+    /**
+     * 2026: Creates the database row for a user the first time they log in.
+     * This replaced the Auth0 "Post User Registration" Action, so Auth0 no longer
+     * needs access to our database.
+     *
+     * SIMPLE TERMS: "This person just signed up. Give them a TypeRacer profile."
+     * - userId comes from their login token, so it can't be faked.
+     * - The username is cleaned up and made unique (EX: "kaori" is taken --> "kaori2").
+     * */
+    public async Task<User> CreateUser(string userId, string? desiredUsername)
+    {
+        // * 1. If they already have a row, don't create a second one
+        User? existingUser = await _userRepository.GetUser(userId);
+
+        if (existingUser != null)
+        {
+            return existingUser;
+        }
+
+        // * 2. Keep only letters, numbers, "_", "-" and ".", and limit the length
+        string baseUsername = new string((desiredUsername ?? "")
+            .Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == '.')
+            .ToArray());
+
+        if (baseUsername.Length > 20)
+        {
+            baseUsername = baseUsername.Substring(0, 20);
+        }
+
+        if (string.IsNullOrEmpty(baseUsername))
+        {
+            baseUsername = "player";
+        }
+
+        // * 3. Make sure nobody else has this username. If taken, add a number.
+        string username = baseUsername;
+        int suffix = 2;
+
+        while (await _userRepository.UsernameExists(username))
+        {
+            username = $"{baseUsername}{suffix}";
+            suffix++;
+        }
+
+        // * 4. Save the new user. Stats start empty until their first game.
+        User newUser = new User
+        {
+            UserId = userId,
+            Username = username,
+            GamesPlayed = 0
+        };
+
+        try
+        {
+            await _userRepository.AddUser(newUser);
+        }
+        catch (DbUpdateException)
+        {
+            // * Two requests tried to create this user at the same moment (EX: React's
+            // * development mode runs startup code twice). The other one won, so return its row.
+            User? createdByOtherRequest = await _userRepository.GetUser(userId);
+
+            if (createdByOtherRequest != null)
+            {
+                return createdByOtherRequest;
+            }
+
+            throw;
+        }
+
+        return newUser;
+    }
+
     public async Task UpdateUser(User updatedUserData)
     {
         /**

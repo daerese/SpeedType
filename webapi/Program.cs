@@ -55,6 +55,9 @@ builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<GameResultRepository>();
 builder.Services.AddScoped<UserService>();
 
+// 2026: Lets controllers make HTTP calls (used to ask Auth0's /userinfo for a new user's username)
+builder.Services.AddHttpClient();
+
 builder.Services.AddSingleton<IDictionary<string, UserConnection>>(opts => new Dictionary<string, UserConnection>());
 
 builder.Services.AddSingleton<IDictionary<string, GameRoom>>(opts => new Dictionary<string, GameRoom>());

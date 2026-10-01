@@ -49,9 +49,16 @@ public class AccountController : Controller
 
     private readonly UserService _userService;
 
-    public AccountController(UserService userService)
+    // * 2026: Used to call Auth0's /userinfo endpoint when creating a new user
+    private readonly IHttpClientFactory _httpClientFactory;
+
+    private readonly IConfiguration _configuration;
+
+    public AccountController(UserService userService, IHttpClientFactory httpClientFactory, IConfiguration configuration)
     {
         _userService = userService;
+        _httpClientFactory = httpClientFactory;
+        _configuration = configuration;
     }
 
     /******************************
@@ -117,6 +124,74 @@ public class AccountController : Controller
         {
             return NotFound(new { Message = "No database user found for this account" });
         }
+
+        return Ok(user);
+    }
+
+    /**
+     * 2026: Creates the logged-in user's database row if they don't have one yet.
+     * The frontend calls this when GET /me says "not found" (the user's first login).
+     *
+     * SIMPLE TERMS: "I just signed up. Please set up my TypeRacer profile."
+     * - The user id comes from the login token (can't be faked).
+     * - The username comes from Auth0 itself (the /userinfo endpoint), NOT from
+     *   the browser, so users can't send whatever they want.
+     *
+     * This replaced the Auth0 "Post User Registration" Action, so Auth0 no longer
+     * needs our database password.
+     * */
+    [HttpPost("me")]
+    [Authorize]
+    public async Task<IActionResult> CreateCurrentUser()
+    {
+        string? userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized();
+        }
+
+        // * 1. Ask Auth0 who this user is, using the same login token they sent us
+        string? desiredUsername = null;
+
+        try
+        {
+            string domain = _configuration["Auth0:Domain"]!.Replace("https://", "").TrimEnd('/');
+
+            HttpClient client = _httpClientFactory.CreateClient();
+
+            var request = new HttpRequestMessage(HttpMethod.Get, $"https://{domain}/userinfo");
+            request.Headers.TryAddWithoutValidation("Authorization", Request.Headers.Authorization.ToString());
+
+            HttpResponseMessage response = await client.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                using var userInfo = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+                // * nickname is the username they signed up with. Fall back to the start of their email.
+                if (userInfo.RootElement.TryGetProperty("nickname", out var nickname))
+                {
+                    desiredUsername = nickname.GetString();
+                }
+                else if (userInfo.RootElement.TryGetProperty("email", out var email))
+                {
+                    desiredUsername = email.GetString()?.Split('@')[0];
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Auth0 /userinfo failed: {response.StatusCode}");
+            }
+        }
+        catch (Exception ex)
+        {
+            // * If Auth0 can't be reached, CreateUser still works and uses a default username
+            Console.WriteLine($"Auth0 /userinfo error: {ex.Message}");
+        }
+
+        // * 2. Create the row (or return the existing one if it was already created)
+        User user = await _userService.CreateUser(userId, desiredUsername);
 
         return Ok(user);
     }

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 
 import { useAuth0 } from "@auth0/auth0-react";
 
-import { getCurrentUser } from '../services/user.service.jsx'
+import { getCurrentUser, createCurrentUser } from '../services/user.service.jsx'
 
 /**
  * DbUserContext (2026)
@@ -36,7 +36,14 @@ export const DbUserProvider = ({ children }) => {
         try {
             const accessToken = await getAccessTokenSilently()
 
-            const { data, error } = await getCurrentUser(accessToken)
+            let { data, error } = await getCurrentUser(accessToken)
+
+            // * 404 = this user has no database profile yet (their first login). Create it.
+            if (error && error.status === 404) {
+                console.log("First login: creating the database user");
+
+                ({ data, error } = await createCurrentUser(accessToken))
+            }
 
             if (error) {
                 console.error("Could not load the database user: ", error.message)

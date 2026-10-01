@@ -33,6 +33,8 @@ export const callExternalApi = async (options) => {
                 data: null,
                 error: {
                     message,
+                    // * 2026: The HTTP status code (EX: 404 = not found), so callers can react to it
+                    status: response ? response.status : null,
                 },
             };
         }

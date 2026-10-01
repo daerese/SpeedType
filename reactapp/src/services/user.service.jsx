@@ -86,6 +86,28 @@ export const getCurrentUser = async (accessToken) => {
     };
 };
 
+/**
+ * 2026: Creates the logged-in user's database profile on their first login.
+ * The backend gets the user id and username from Auth0, so nothing is sent in the body.
+ */
+export const createCurrentUser = async (accessToken) => {
+    const config = {
+        url: `${apiServerUrl}/api/user/me`,
+        method: "POST",
+        headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+        },
+    };
+
+    const { data, error } = await callExternalApi({ config });
+
+    return {
+        data: data || null,
+        error,
+    };
+};
+
 export const getUser = async (accessToken, userId) => {
     const config = {
         url: `${apiServerUrl}/api/user/get-user?userId=${userId}`,

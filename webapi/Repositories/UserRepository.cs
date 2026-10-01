@@ -39,6 +39,21 @@ public class UserRepository
             .FirstOrDefaultAsync();
     }
 
+    // * 2026: Adds a brand new user row (used the first time someone logs in)
+    public async Task AddUser(User user)
+    {
+        _context.Users.Add(user);
+
+        await _context.SaveChangesAsync();
+    }
+
+    // * 2026: Is this username already used by someone? (Case-insensitive)
+    public async Task<bool> UsernameExists(string username)
+    {
+        return await _context.Users
+            .AnyAsync(u => u.Username.ToLower() == username.ToLower());
+    }
+
     public async Task<User> GetPublicUser(string username)
     {
         return await _context.Users
