@@ -25,7 +25,7 @@ const GeneralSettings = () => {
                 <div>
 
                     <Avatar
-                        src={""}
+                        avatar={""}
                     />
 
                 </div>

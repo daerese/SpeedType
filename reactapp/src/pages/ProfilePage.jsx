@@ -676,10 +676,11 @@ const ProfilePage = ({
 
                             <Avatar
                                 size={125}
-                                src={isPublic && publicUserObject ?
+                                avatar={isPublic && publicUserObject ?
                                     publicUserObject.profilePicturePath
                                     :
                                     dbUser?.profilePicturePath}
+                                color={preferredColor}
                             />
 
                             {/*<div className="inline-block">*/}

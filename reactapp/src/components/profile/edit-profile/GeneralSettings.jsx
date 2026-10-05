@@ -307,11 +307,12 @@ const GeneralSettings = () => {
                         {/*profile picture*/}
                         <div className="my-5">
 
-                            <label className="block mb-2 text-md font-medium text-gray-900 dark:text-white" htmlFor="file_input">Change Profile Picture</label>
+                            <p className="block mb-2 text-md font-medium text-gray-900 dark:text-white">Change Avatar</p>
 
                             <div className="flex gap-5 items-center">
                                 <Avatar
-                                    src={tempImg ? tempImg : dbUser?.profilePicturePath}
+                                    avatar={tempImg ? tempImg : dbUser?.profilePicturePath}
+                                    color={dbUser?.color}
                                     size={125}
                                 />
 
@@ -320,7 +321,6 @@ const GeneralSettings = () => {
                                     id="file_input"
                                     name="fileInput"
                                     type="file"
-                                    accept="image/png, image/jpeg"
                                     
                                 />
                             </div>

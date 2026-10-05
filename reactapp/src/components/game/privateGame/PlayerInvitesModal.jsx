@@ -197,7 +197,7 @@ const PlayerInvitesModal = ({
                                                     <div className="flex items-center gap-2">
 
                                                         <Avatar
-                                                            src={friend.profilePicturePath}
+                                                            avatar={friend.profilePicturePath}
                                                             size={50}
 
                                                         />

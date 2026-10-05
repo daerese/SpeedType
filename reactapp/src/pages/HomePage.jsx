@@ -214,7 +214,8 @@ const HomePage = ({ user, friendRequests, updateFriendRequest, invitesReceived, 
 
                                         <div className="flex items-center gap-3 mb-4">
                                             <Avatar
-                                                src={dbUser?.profilePicturePath}
+                                                avatar={dbUser?.profilePicturePath}
+                                                color={dbUser?.color}
                                                 size={56}
                                                 noRing={true}
                                             />

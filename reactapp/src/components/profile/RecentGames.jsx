@@ -251,7 +251,7 @@ const RecentGames = ({ userRecentGames, userGamesLoading, getAccessToken, curren
                                                     <a href={player.username === currentUsername ? "/profile" : `/profile/${player.username}`} className="block flex items-center gap-2 cursor-pointer border p-2 duration-200 hover:bg-gray-200">
 
                                                         <Avatar
-                                                            src={player.profilePicturePath}
+                                                            avatar={player.profilePicturePath}
                                                             size={50}
                                                     
                                                         />

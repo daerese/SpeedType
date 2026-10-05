@@ -2,6 +2,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using webapi.Models.DatabaseModels;
+using webapi.Utils;
 
 /**
  * UserService.cs
@@ -28,10 +29,18 @@ public class UserService
 
     private readonly GameResultRepository _gameResultRepository;
 
-    public UserService(UserRepository userRepository, GameResultRepository gameResultRepository)
+    private readonly Avatar _avatar;
+
+    // THis line of code is a constructor for the UserService class. It takes two parameters: a UserRepository and a GameResultRepository. These are used to interact with the database for user-related operations and game result operations, respectively. The constructor initializes the private fields _userRepository and _gameResultRepository with the provided instances, allowing the service to use them in its methods.
+    public UserService(
+        UserRepository userRepository, 
+        GameResultRepository gameResultRepository,
+        Avatar avatar
+        )
     {
         _userRepository = userRepository;
         _gameResultRepository = gameResultRepository;
+        _avatar = avatar;
     }
 
     // * Methods for getting the users
@@ -156,6 +165,7 @@ public class UserService
             UserId = userId,
             Username = username,
             Color = "#1A8FDD",
+            ProfilePicturePath = _avatar.GetRandomIcon(),
             GamesPlayed = 0
         };
 

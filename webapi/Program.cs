@@ -55,6 +55,9 @@ builder.Services.AddScoped<UserRepository>();
 builder.Services.AddScoped<GameResultRepository>();
 builder.Services.AddScoped<UserService>();
 
+// 2026: Picks a random avatar icon for new users (Utils/Avatar.cs). UserService needs this.
+builder.Services.AddSingleton<webapi.Utils.Avatar>();
+
 // 2026: Lets controllers make HTTP calls (used to ask Auth0's /userinfo for a new user's username)
 builder.Services.AddHttpClient();
 

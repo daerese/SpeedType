@@ -292,7 +292,7 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
 
                                         
                                                                 <Avatar
-                                                                    src={request.fromProfilePicturePath}
+                                                                    avatar={request.fromProfilePicturePath}
                                                                     size={45}
                                             
                                                                 />
@@ -381,7 +381,7 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
 
 
                                                                 <Avatar
-                                                                    src={invite.senderProfilePicturePath}
+                                                                    avatar={invite.senderProfilePicturePath}
                                                                     size={45}
 
                                                                 />

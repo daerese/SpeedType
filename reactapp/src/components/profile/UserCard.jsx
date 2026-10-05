@@ -29,7 +29,8 @@ const UserCard = ({ user }) => {
 
                     {/*Image goes here*/}
                     <Avatar
-                        src={user.profilePicturePath}
+                        avatar={user.profilePicturePath}
+                        color={user.color}
                         size={100}
                         noRing={true}
                     />

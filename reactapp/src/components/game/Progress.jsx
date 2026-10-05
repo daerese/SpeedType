@@ -144,7 +144,8 @@ const Player = ({
                         {/* user icon */}
 
                         <Avatar
-                            src={profileImg}
+                            avatar={profileImg}
+                            color={color}
                             size={60}
                         />
 
