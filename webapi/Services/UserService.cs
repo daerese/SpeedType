@@ -148,11 +148,14 @@ public class UserService
             suffix++;
         }
 
-        // * 4. Save the new user. Stats start empty until their first game.
+        // * 4. Save the new user with a default color.
+        // * WPM/accuracy stats are left empty (null) on purpose: matchmaking treats
+        // * "no average WPM" as a new player who can join any room. They fill in after the first game.
         User newUser = new User
         {
             UserId = userId,
             Username = username,
+            Color = "#1A8FDD",
             GamesPlayed = 0
         };
 

@@ -146,8 +146,11 @@ public class UserRepository
 
         //List<FriendRequest> requests = await GetFriendRequests(fromUser.UserId);
 
+        // * 2026 FIX: Only look for a request between THESE TWO users (in either direction).
+        // * The old check blocked a user who had ANY friend request from sending another one.
         List<FriendRequest> requests = _context.FriendRequests
-                                        .Where(request => fromUser.UserId == request.FromUserId || fromUser.UserId == request.ToUserId)
+                                        .Where(request => (request.FromUserId == fromUser.UserId && request.ToUserId == toUser.UserId) ||
+                                                          (request.FromUserId == toUser.UserId && request.ToUserId == fromUser.UserId))
                                         .ToList();
 
         if (requests.Count == 0)

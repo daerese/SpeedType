@@ -158,6 +158,53 @@ public class GameHub : Hub
     //}
 
     /****************
+     * 2026 SECURITY: Helpers for knowing WHO is calling the hub.
+     *
+     * SIMPLE TERMS: Never trust a user id that the browser sends us. Anyone can edit
+     * what their browser sends. Instead, we use the id from their Auth0 login token,
+     * which can't be faked.
+     *
+     * NOTE: Only PUBLIC methods can be called by browsers. Everything the browser
+     * shouldn't call directly (creating rooms, ending games, etc.) is PRIVATE.
+     * *******************/
+
+    // The Auth0 user id ("sub") from the caller's login token
+    private string? CurrentUserId => Context.UserIdentifier;
+
+    // Highest WPM we accept. Anything faster is treated as cheating.
+    private const int MaxWpm = 250;
+
+    // The caller's UserConnection (created in InitConnection), or null if they haven't initialized
+    private UserConnection? GetCurrentConnection()
+    {
+        return _connections.TryGetValue(Context.ConnectionId, out UserConnection? userConnection) ? userConnection : null;
+    }
+
+    // The room the caller is playing in, but ONLY if they're actually in it
+    private GameRoom? GetCallersRoom(string roomId)
+    {
+        if (roomId != null &&
+            _gameRooms.TryGetValue(roomId, out GameRoom? gameRoom) &&
+            gameRoom.Connections.ContainsKey(Context.ConnectionId))
+        {
+            return gameRoom;
+        }
+
+        return null;
+    }
+
+    // Is the caller the host of this private game?
+    private bool IsCallerHost(GameRoom gameRoom)
+    {
+        UserConnection? caller = GetCurrentConnection();
+
+        return caller != null &&
+            gameRoom.IsPrivateGame &&
+            gameRoom.Connections.ContainsKey(Context.ConnectionId) &&
+            gameRoom.PrivateGameHostUsername == caller.Username;
+    }
+
+    /****************
      * Intializing the connection to the hub
      * *******************/
 
@@ -165,16 +212,16 @@ public class GameHub : Hub
     {
         try
         {
-            // ✅ ADD THIS: Validate the incoming userConnection
-            if (userConnection == null)
+            // * 2026 SECURITY: The user id comes from the login token, NOT from what the browser sent
+            string? tokenUserId = CurrentUserId;
+
+            if (string.IsNullOrEmpty(tokenUserId))
             {
-                throw new ArgumentNullException(nameof(userConnection), "UserConnection cannot be null");
+                throw new HubException("You must be logged in.");
             }
 
-            if (string.IsNullOrEmpty(userConnection.UserId))
-            {
-                throw new ArgumentException("UserId cannot be null or empty", nameof(userConnection.UserId));
-            }
+            userConnection ??= new UserConnection();
+            userConnection.UserId = tokenUserId;
 
             if (!_connections.ContainsKey(Context.ConnectionId))
             {
@@ -219,7 +266,8 @@ public class GameHub : Hub
      * Game Room Related functions (EX: Join, Create, Join private, create private)
      * ***************/
 
-    public async Task JoinRoom(UserConnection userConnection)
+    // * 2026: PRIVATE so browsers can't join any room they want. Only FindRoom uses it.
+    private async Task JoinRoom(UserConnection userConnection)
     {
 
         // When someone joins a room --> Add user to the group (room)
@@ -235,11 +283,12 @@ public class GameHub : Hub
                 _connections[Context.ConnectionId] = userConnection;
             }
 
-            gameRoom.Connections.Add(Context.ConnectionId, userConnection);
+            // * Using [] instead of .Add() so joining twice doesn't crash
+            gameRoom.Connections[Context.ConnectionId] = userConnection;
 
-            gameRoom.ClientUserObjects.Add(userConnection.Username, userConnection);
+            gameRoom.ClientUserObjects[userConnection.Username] = userConnection;
 
-            
+
 
             // If a player has joined, the pre game timer can be started IF not already started...
             if (gameRoom.Waiting)
@@ -249,7 +298,7 @@ public class GameHub : Hub
 
                     Console.WriteLine("Starting the Pregame");
 
-                    await StartPreGame(gameRoom.RoomId);
+                    await StartPreGameInternal(gameRoom.RoomId);
                     return;
                     
                 }
@@ -269,14 +318,14 @@ public class GameHub : Hub
 
 
     // Utility --> Select a random paragraph
-    public string RandomParagraph()
+    private string RandomParagraph()
     {
         Random random = new Random();
         return paragraphs[random.Next(paragraphs.Length)];
         
     }
 
-    public Task SendGameRoom(GameRoom gameRoom, IHubContext<GameHub>? hubContext = null)
+    private Task SendGameRoom(GameRoom gameRoom, IHubContext<GameHub>? hubContext = null)
     {
         //return Clients.Group(gameRoom.Link).SendAsync("ReceiveGameRoom", gameRoom);
 
@@ -321,7 +370,8 @@ public class GameHub : Hub
 
     }
 
-    public async Task CreateRoom(UserConnection userConnection)
+    // * 2026: PRIVATE so browsers can't create rooms with made-up player info. Only FindRoom uses it.
+    private async Task CreateRoom(UserConnection userConnection)
     {
 
         // Acquire the user's color from the database
@@ -411,7 +461,7 @@ public class GameHub : Hub
             GameRoom currentGameRoom = new GameRoom 
             { 
                 RoomId = userConnection.RoomId, 
-                Paragraph = RandomParagraph(), 
+                Paragraph = new ParagraphGenerator().generate(), 
                 Connections = new Dictionary<string, UserConnection>() 
             { 
                 {connectionId, userConnection } 
@@ -457,12 +507,19 @@ public class GameHub : Hub
 
         bool isJoinable = false;
 
-        // 0. Acquire the current user's information 
-        UserConnection userConnection = _connections[Context.ConnectionId];
+        // 0. Acquire the current user's information
+        UserConnection? userConnection = GetCurrentConnection();
+
+        if (userConnection == null)
+        {
+            throw new HubException("Connection not initialized.");
+        }
 
 
-        // 0a. Ensure that the private game is joinable 
-        if (_gameRooms.TryGetValue(roomId, out GameRoom currentGameRoom))
+        // 0a. Ensure that the private game is joinable
+        GameRoom? currentGameRoom = null;
+
+        if (roomId != null && _gameRooms.TryGetValue(roomId, out currentGameRoom))
         {
 
             // ? Check the state of the gameRoom and ensure that it isn't in progress.
@@ -489,15 +546,23 @@ public class GameHub : Hub
             userConnection.RoomId = currentGameRoom.RoomId;
 
             // 1b. Add the user to the game room
-            currentGameRoom.Connections.Add(Context.ConnectionId, userConnection);
+            // * 2026: [] instead of .Add() so joining twice doesn't crash
+            currentGameRoom.Connections[Context.ConnectionId] = userConnection;
 
-            currentGameRoom.ClientUserObjects.Add(userConnection.Username, userConnection);
+            currentGameRoom.ClientUserObjects[userConnection.Username] = userConnection;
 
-            // 1c. Remove the invite from the receiver's invites
-
+            // 1c. Remove the invite for this room from the receiver's invites (if they had one).
+            // * 2026 FIX: invites are stored by the SENDER's user id, not the room id,
+            // * and players joining from a link may have no invites at all (that used to crash).
             string userId = userConnection.UserId;
 
-            _gameInviteReceivers[userId].Remove(roomId);
+            if (_gameInviteReceivers.TryGetValue(userId, out Dictionary<string, InviteReceived>? invites))
+            {
+                foreach (string senderId in invites.Where(invite => invite.Value.RoomId == roomId).Select(invite => invite.Key).ToList())
+                {
+                    invites.Remove(senderId);
+                }
+            }
 
 
             // 2. Send the gameRoom to the group
@@ -524,66 +589,43 @@ public class GameHub : Hub
 
     public async Task FindRoom(UserConnection userConnection)
     {
-        // DEBUG: Printed the moment the server receives a FindRoom call, before anything can fail
-        Console.WriteLine($"FINDROOM CALLED. UserId: {userConnection?.UserId}, Connection ID: {Context.ConnectionId}, Rooms in memory: {_gameRooms.Count}");
+        // * 2026 SECURITY: Ignore the player info the browser sent. Use the server's own copy
+        // * (created in InitConnection from the login token and the database).
+        UserConnection? storedConnection = GetCurrentConnection();
 
-
-        // * Possible solution: get average WPM from the database
-        var user = await _userService.GetUserAsync(userConnection.UserId);
-
-        // * Populate userConnection from user
-
-        // * - Remove the user from the game if still there. THEN find a new game
-        if (_connections.ContainsKey(Context.ConnectionId))
+        if (storedConnection == null)
         {
-
-            Console.WriteLine("User is connected already. Finding a game");
-            userConnection = _connections[Context.ConnectionId];
-
-            if (userConnection.RoomId != null)
-            {
-                // * Is the user in a game or has a game associated with them already?
-                if (_gameRooms.TryGetValue(userConnection.RoomId, out GameRoom gameRoom))
-                {
-
-                    Console.WriteLine("\nAttempting to find a new game\n");
-
-
-                    if (gameRoom.Connections.ContainsKey(Context.ConnectionId))
-                    {
-
-                        Console.WriteLine("\nRemoving from the current game\n");
-
-                        await Groups.RemoveFromGroupAsync(Context.ConnectionId, gameRoom.RoomId);
-                        gameRoom.Connections.Remove(Context.ConnectionId);
-
-
-                        //* If the game hasn't started and is not over, remove their clientObject
-                        //if (!gameRoom.Running && !gameRoom.GameOver)
-                        //{
-                        //    gameRoom.ClientUserObjects.Remove(userConnection.Username);
-
-                        //}
-
-
-
-                    }
-
-                    // Reset the values of the userConnection before joining a new game
-                    userConnection.Accuracy = 0;
-                    userConnection.Finished = false;
-                    userConnection.Progress = 0;
-                    userConnection.Wpm = 0;
-                    userConnection.FinalResults = null;
-                    
-                }
-
-            }
-
-
+            throw new HubException("Connection not initialized.");
         }
 
-        bool hasAverageWpm = user.AverageWpm != null;
+        userConnection = storedConnection;
+
+        Console.WriteLine($"FINDROOM CALLED. User: {userConnection.Username}, Rooms in memory: {_gameRooms.Count}");
+
+        // * Get their LATEST average WPM from the database (it may have changed since they connected)
+        var user = await _userService.GetUserAsync(userConnection.UserId);
+
+        userConnection.AverageWpm = user?.AverageWpm;
+
+        // * - Remove the user from their previous game if they're still in it. THEN find a new game
+        if (userConnection.RoomId != null &&
+            _gameRooms.TryGetValue(userConnection.RoomId, out GameRoom previousRoom) &&
+            previousRoom.Connections.ContainsKey(Context.ConnectionId))
+        {
+            Console.WriteLine("\nRemoving from the current game\n");
+
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, previousRoom.RoomId);
+            previousRoom.Connections.Remove(Context.ConnectionId);
+        }
+
+        // * Reset the player's race values before joining a new game
+        userConnection.Accuracy = 0;
+        userConnection.Finished = false;
+        userConnection.Progress = 0;
+        userConnection.Wpm = 0;
+        userConnection.FinalResults = null;
+
+        bool hasAverageWpm = user?.AverageWpm != null;
 
         Console.WriteLine($"FINDROOM Connection ID: {Context.ConnectionId}");
 
@@ -666,7 +708,7 @@ public class GameHub : Hub
 
 
 
-    public Tuple<int, int> GetWpmRange(int averageWpm)
+    private Tuple<int, int> GetWpmRange(int averageWpm)
     {
         /**
          * Returns a range value based on the user's WPM range.
@@ -736,9 +778,11 @@ public class GameHub : Hub
 
     /**
      * Utility function that allows the frontend to get all active games.
+     * 2026: PRIVATE. It sends every room (including other players' connection ids),
+     * and the frontend doesn't use it.
      * *******/
 
-    public async Task GetActiveGames()
+    private async Task GetActiveGames()
     {
         //await Clients.Group().SendAsync("ReceiveMessage")
 
@@ -847,67 +891,119 @@ public class GameHub : Hub
     /***********************************************
      * Game state Update functions
      *********************************************/
+    /**
+     * 2026 SECURITY: These three methods only accept updates from a player who is
+     * actually IN that room, while its race is running. Values are kept within
+     * sensible limits so nobody can send fake numbers (EX: 9999 WPM).
+     * */
     public async Task UpdateProgress(double progress, string roomId)
     {
+        GameRoom? currRoom = GetCallersRoom(roomId);
 
-
-        GameRoom currRoom = _gameRooms[roomId];
+        if (currRoom == null || !currRoom.Running)
+        {
+            return;
+        }
 
         UserConnection currUser = currRoom.Connections[Context.ConnectionId];
 
-        currUser.Progress = progress;
-        
+        // * Once a player has finished, ignore any more progress updates from them
+        if (currUser.Finished)
+        {
+            return;
+        }
+
+        progress = Math.Clamp(progress, 0, 1);
+
         if (progress >= 1)
         {
+            // * The SERVER calculates the final WPM from the paragraph length and race time,
+            // * so a player can't just claim a high score. (1 "word" = 5 characters)
+            double minutesElapsed = (DateTime.Now.Ticks - currRoom.Time.StartTime) / (double)TimeSpan.TicksPerMinute;
+
+            double serverWpm = (currRoom.Paragraph.Length / 5.0) / Math.Max(minutesElapsed, 0.001);
+
+            if (serverWpm > MaxWpm)
+            {
+                // * Impossibly fast. Don't accept the finish.
+                Console.WriteLine($"Rejected finish from {currUser.Username}: {serverWpm:0} WPM is not realistic");
+                return;
+            }
+
+            currUser.Progress = 1;
+            currUser.Wpm = (int)Math.Round(serverWpm);
+
             // ? FinishPlayer will send the gameRoom in its own modified way.
             await FinishPlayer(currRoom, currUser);
         }
-        
-        await SendGameRoom(_gameRooms[roomId]);
-        
+        else
+        {
+            currUser.Progress = progress;
+        }
 
-        //Console.WriteLine("New Progress: " + progress.ToString());
-
-        //Console.WriteLine("Server Stored Progress: " + _gameRooms[roomId].Connections[Context.ConnectionId].Progress.ToString());
-
+        await SendGameRoom(currRoom);
     }
+
     public async Task UpdateWpm(int wpm, string roomId)
     {
+        GameRoom? currRoom = GetCallersRoom(roomId);
 
-        //Console.WriteLine($"Room ID Passed to WPM: {roomId}");
-        //Console.WriteLine($"ConnectionId Passed to WPM: {Context.ConnectionId}");
+        if (currRoom == null || !currRoom.Running)
+        {
+            return;
+        }
 
-        //Console.WriteLine($"Update WPM Gameroom in question: {_gameRooms[roomId]}");
+        UserConnection currUser = currRoom.Connections[Context.ConnectionId];
 
-        _gameRooms[roomId].Connections[Context.ConnectionId].Wpm = wpm;
+        // * The live WPM is only for display. The final WPM is calculated by the server in UpdateProgress.
+        if (!currUser.Finished)
+        {
+            currUser.Wpm = Math.Clamp(wpm, 0, MaxWpm);
+        }
 
-
-        //Console.WriteLine("New WPM: " + wpm.ToString());
-
-        await SendGameRoom(_gameRooms[roomId]);
-
+        await SendGameRoom(currRoom);
     }
 
     public async Task UpdateAccuracy(int accuracy, string roomId)
     {
+        GameRoom? currRoom = GetCallersRoom(roomId);
 
-        _gameRooms[roomId].Connections[Context.ConnectionId].Accuracy = accuracy;
+        if (currRoom == null || !currRoom.Running)
+        {
+            return;
+        }
 
+        UserConnection currUser = currRoom.Connections[Context.ConnectionId];
 
-        //Console.WriteLine("New WPM: " + wpm.ToString());
+        if (!currUser.Finished)
+        {
+            currUser.Accuracy = Math.Clamp(accuracy, 0, 100);
+        }
 
-        await SendGameRoom(_gameRooms[roomId]);
-
-        //Console.WriteLine("New Accuracy: ", accuracy.ToString());
-
+        await SendGameRoom(currRoom);
     }
 
     /***********************************************
      * Starting and Ending the game
      *********************************************/
 
-    //public async Task StartPreGame(GameRoom gameRoom)
+    /**
+     * Called by the HOST of a private game when they click "Start Game".
+     * 2026 SECURITY: Only the host can start their own private game, and only before it starts.
+     * */
     public async Task StartPreGame(string roomId)
+    {
+        GameRoom? gameRoom = GetCallersRoom(roomId);
+
+        if (gameRoom == null || !IsCallerHost(gameRoom) || gameRoom.Running || gameRoom.IsPreGame)
+        {
+            return;
+        }
+
+        await StartPreGameInternal(roomId);
+    }
+
+    private async Task StartPreGameInternal(string roomId)
     {
         /**
          * Starts the pre game timer to prepare the players for the actual game start
@@ -934,7 +1030,8 @@ public class GameHub : Hub
 
     }
 
-    public async Task StartGame(string roomId, GameRoom? sentGameRoom)
+    // * 2026: PRIVATE. Games start automatically when the pre-game countdown ends.
+    private async Task StartGame(string roomId, GameRoom? sentGameRoom)
     {
 
         // Check if the preGameTimer is running. If so, dispose of it.
@@ -963,13 +1060,17 @@ public class GameHub : Hub
 
     public async Task RestartPrivateGame(string roomId)
     {
-        if (_gameRooms.TryGetValue(roomId, out GameRoom gameRoom))
+        GameRoom? gameRoom = GetCallersRoom(roomId);
+
+        // * 2026 SECURITY: Only the host can restart, and only after the game is over
+        if (gameRoom != null && IsCallerHost(gameRoom) && gameRoom.GameOver)
         {
             Console.WriteLine("Resetting the private game");
 
             // 1. Reset the necessary states of the gameRoom
 
-            gameRoom.Paragraph = RandomParagraph();
+            // * 2026: Use the real paragraph generator (RandomParagraph only has 2 short test paragraphs)
+            gameRoom.Paragraph = new ParagraphGenerator().generate();
             gameRoom.Running = false;
             gameRoom.GameOver = false;
             gameRoom.Time = new Time { CurrentTime = 90, TimePassed = 0, StartTime = 0 };
@@ -996,12 +1097,12 @@ public class GameHub : Hub
             await Clients.Group(gameRoom.RoomId).SendAsync("PrivateGameRestarting");
 
             // 3. Start The Pregame / Send the gameRoom
-            await StartPreGame(gameRoom.RoomId);
+            await StartPreGameInternal(gameRoom.RoomId);
 
         }
     } 
 
-    public async Task EndGame(GameRoom gameRoom)
+    private async Task EndGame(GameRoom gameRoom)
     {
         /**
          * This function ends the timer and prevents further calculations
@@ -1029,7 +1130,7 @@ public class GameHub : Hub
 
     }
 
-    public async Task DisposeGame(GameRoom gameRoom)
+    private async Task DisposeGame(GameRoom gameRoom)
     {
         /**
          * Dispose of the game once all players have left.
@@ -1323,7 +1424,20 @@ public class GameHub : Hub
 
         Console.WriteLine("SendInvite function called...");
 
-        Console.WriteLine("Profile picture path from sender: " + senderProfilePicturePath);
+        // * 2026 SECURITY: The sender's info comes from the server, not the browser,
+        // * and they can only invite people to a private room they're in.
+        UserConnection? sender = GetCurrentConnection();
+        GameRoom? inviteRoom = GetCallersRoom(roomId);
+
+        if (sender == null || inviteRoom == null || !inviteRoom.IsPrivateGame ||
+            string.IsNullOrEmpty(receiverUserId) || receiverUserId == sender.UserId)
+        {
+            return;
+        }
+
+        senderUserId = sender.UserId;
+        senderUsername = sender.Username;
+        senderProfilePicturePath = sender.ProfileImg ?? "";
 
         // 1. Create an entry in GameInvitesSender
 
@@ -1340,7 +1454,15 @@ public class GameHub : Hub
 
             //senderInvites.Add(userId, false);
 
-            inviteSender.InvitesSent.Add(receiverUserId, false);
+            // * 2026: If these invites were for an older room, start a fresh list for this room
+            if (inviteSender.RoomId != roomId)
+            {
+                inviteSender.RoomId = roomId;
+                inviteSender.InvitesSent.Clear();
+            }
+
+            // * [] instead of .Add() so inviting the same person twice doesn't crash
+            inviteSender.InvitesSent[receiverUserId] = false;
 
             Dictionary<string, bool> invitesSentDict = inviteSender.InvitesSent;
 
@@ -1395,7 +1517,8 @@ public class GameHub : Hub
 
             };
 
-            invitesReceived.Add(senderUserId, inviteReceived);
+            // * [] instead of .Add() so a second invite from the same person replaces the old one (no crash)
+            invitesReceived[senderUserId] = inviteReceived;
 
 
             // * Send the new invites to the receiver if they're online
@@ -1447,7 +1570,7 @@ public class GameHub : Hub
 
     }
 
-    public async Task GetInvitesReceived(string userId)
+    private async Task GetInvitesReceived(string userId)
     {
 
         if (_gameInviteReceivers.TryGetValue(userId, out Dictionary<string, InviteReceived> invitesReceived))
@@ -1501,18 +1624,43 @@ public class GameHub : Hub
          * 3. Use SendAsync to somehow update the receiver
          * 4. Use SendAsync to update the sender's frontend
          * */
+        // * 2026 SECURITY: The sender is ALWAYS the logged-in user (from their token).
+        // * Both users' names and pictures come from the database, not from the browser.
+        fromUserId = CurrentUserId!;
+
+        if (string.IsNullOrEmpty(fromUserId) || string.IsNullOrEmpty(toUserId) || fromUserId == toUserId)
+        {
+            return;
+        }
+
+        User? fromDbUser = await _userService.GetUserAsync(fromUserId);
+        User? toDbUser = await _userService.GetUserAsync(toUserId);
+
+        if (fromDbUser == null || toDbUser == null)
+        {
+            return;
+        }
+
+        // * Don't send a request if they're already friends or a request between them already exists
+        if (await _userService.GetSingleFriend(fromUserId, toUserId) != null ||
+            await _userService.GetSingleFriendRequest(fromUserId, toUserId) != null)
+        {
+            return;
+        }
+
+        // * The FriendRequests table doesn't allow null pictures, so use "" when there's no picture
         FriendRequestUser fromUser = new FriendRequestUser
         {
             UserId = fromUserId,
-            Username = fromUsername,
-            ProfilePicturePath = fromProfilePicture,
+            Username = fromDbUser.Username,
+            ProfilePicturePath = fromDbUser.ProfilePicturePath ?? "",
         };
 
         FriendRequestUser toUser = new FriendRequestUser
         {
             UserId = toUserId,
-            Username = toUsername,
-            ProfilePicturePath = toProfilePicture,
+            Username = toDbUser.Username,
+            ProfilePicturePath = toDbUser.ProfilePicturePath ?? "",
         };
 
         Console.WriteLine($"Sender: {fromUser} \n Receiver {toUser}");
@@ -1520,9 +1668,14 @@ public class GameHub : Hub
         await _userService.AddFriendRequest(fromUser, toUser);
 
 
-        // * Acurie the new friend request that has just been added to the database and 
+        // * Acurie the new friend request that has just been added to the database and
         // * send it to the frontend of the sender
-        FriendRequest newRequest = await _userService.GetSingleFriendRequest(fromUserId, toUserId);
+        FriendRequest? newRequest = await _userService.GetSingleFriendRequest(fromUserId, toUserId);
+
+        if (newRequest == null)
+        {
+            return;
+        }
 
         Console.WriteLine($"\nNew Request being sent back: " + newRequest.FromUserId + "\n");
 
@@ -1555,6 +1708,16 @@ public class GameHub : Hub
 
     public async Task UpdateFriendRequestStatus(int friendRequestId, string fromUserId, string toUserId, bool accepted)
     {
+        // * 2026 SECURITY: Only the person who RECEIVED the request can accept or reject it.
+        toUserId = CurrentUserId!;
+
+        FriendRequest? request = await _userService.GetSingleFriendRequest(fromUserId, toUserId);
+
+        if (request == null || request.RequestId != friendRequestId || request.ToUserId != toUserId)
+        {
+            return;
+        }
+
         await _userService.UpdateFriendRequestStatus(friendRequestId, accepted);
 
         /**
@@ -1644,7 +1807,7 @@ public class GameHub : Hub
         }
     }
 
-    public async Task GetFriendRequests(string userId)
+    private async Task GetFriendRequests(string userId)
     {
         /**
          * Acquire and send the current user's friend requests from the database to the frontend
@@ -1655,7 +1818,7 @@ public class GameHub : Hub
         await Clients.Client(Context.ConnectionId).SendAsync("ReceiveFriendRequests", friendRequests);
     }
 
-    public async Task GetFriends(string userId)
+    private async Task GetFriends(string userId)
     {
         /**
          * Acquire and send the current user's friends list from the database to the frontend
@@ -1686,6 +1849,21 @@ public class GameHub : Hub
 
         Console.WriteLine("Acquring online friends");
 
+        // * 2026 SECURITY: Only check users who are actually the caller's friends,
+        // * so nobody can see whether any random user is online.
+        string? myUserId = CurrentUserId;
+
+        if (string.IsNullOrEmpty(myUserId) || friendUserIds == null)
+        {
+            return;
+        }
+
+        HashSet<string> myFriendIds = (await _userService.GetFriends(myUserId))
+            .Select(friend => friend.UserId1 == myUserId ? friend.UserId2 : friend.UserId1)
+            .ToHashSet();
+
+        friendUserIds = friendUserIds.Where(myFriendIds.Contains).ToList();
+
         List<Dictionary<string, string>> newOnlineFriends = new List<Dictionary<string, string>>();
 
         foreach(string userId in friendUserIds)
@@ -1715,7 +1893,7 @@ public class GameHub : Hub
 
     }
 
-    public async Task GetFriendObjects(List<string> friendUserIds)
+    private async Task GetFriendObjects(List<string> friendUserIds)
     {
         /**
          * Gets the user objects of the friends list using the list of 
@@ -1735,7 +1913,7 @@ public class GameHub : Hub
 
     }
 
-    public async Task UpdateFriendRequestNotifications()
+    private async Task UpdateFriendRequestNotifications()
     {
         /**
          * This function should (possibly) receive a list of the friend requests to have 

@@ -16,8 +16,10 @@ public class UserConnection
     
     public string ProfileImg { get; set; }
 
-    // ? The connectionId is here because when a receiver receives a friend request, 
-    // ? I won't have access to their connectionId. 
+    // ? The connectionId is here because when a receiver receives a friend request,
+    // ? I won't have access to their connectionId.
+    // * 2026: [JsonIgnore] keeps it on the server only. It's never sent to other players' browsers.
+    [System.Text.Json.Serialization.JsonIgnore]
     public string ConnectionId { get; set; }
 
     //public bool IsHost { get; set; }
