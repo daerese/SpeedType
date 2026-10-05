@@ -1994,9 +1994,10 @@
 
             }
 
-            paragraph.Trim();
-
-            return paragraph;
+            // * 2026 FIX: Trim() returns a NEW string, so its result has to be used.
+            // * Before, every paragraph ended with an extra space. Players had to type that space,
+            // * and it made the browser report "finished" twice (saving the game twice).
+            return paragraph.Trim();
 
         }
 

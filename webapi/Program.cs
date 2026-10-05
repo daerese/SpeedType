@@ -58,21 +58,9 @@ builder.Services.AddScoped<UserService>();
 // 2026: Lets controllers make HTTP calls (used to ask Auth0's /userinfo for a new user's username)
 builder.Services.AddHttpClient();
 
-builder.Services.AddSingleton<IDictionary<string, UserConnection>>(opts => new Dictionary<string, UserConnection>());
-
-builder.Services.AddSingleton<IDictionary<string, GameRoom>>(opts => new Dictionary<string, GameRoom>());
-
-// Timer singleton
-builder.Services.AddSingleton<IDictionary<string, System.Timers.Timer>>(opts => new Dictionary<string, System.Timers.Timer>());
-
-// _gameInviteSenders singleton 
-builder.Services.AddSingleton<IDictionary<string, InviteSender>>(opts => new Dictionary<string, InviteSender>());
-
-// _gameInviteReceivers singleton
-builder.Services.AddSingleton<IDictionary<string, Dictionary<string, InviteReceived>>>(opts => new Dictionary<string, Dictionary<string, InviteReceived>>());
-
-//IDictionary<string, Dictionary<string, bool>> gameInvitesSender,
-//                IDictionary<string, List<Invite>> gameInvitesReceiver,
+// 2026: All live game data (connections, rooms, timers, invites) in one shared, thread-safe object.
+// See Hubs/GameState.cs for why this replaced the separate dictionary singletons.
+builder.Services.AddSingleton<GameState>();
 
 
 // 1. Add SignalR as one of the build services

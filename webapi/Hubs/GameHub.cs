@@ -53,9 +53,6 @@ public class GameHub : Hub
     // Stores --> roomId: gameRoom object
     private readonly IDictionary<string, GameRoom> _gameRooms;
 
-    // Stores --> roomId: gameRoom object
-    private readonly IDictionary<string, GameRoom> _privateGameRooms;
-
     // Stores --> roomId: timer object for the game
     private IDictionary<string, System.Timers.Timer> _gameTimers;
 
@@ -79,29 +76,20 @@ public class GameHub : Hub
 
 
     // Class instatiation method
-    //public GameHub(IDictionary<string, UserConnection> connections)
-    public GameHub(IDictionary<string, UserConnection> connections,
-                    IDictionary<string, UserConnection> connectionsUserId,
-                    IDictionary<string, GameRoom> gameRooms,
-                    IDictionary<string, GameRoom> privateGameRooms,
-                    IDictionary<string, System.Timers.Timer> gameTimers,
-                    IDictionary<string, System.Timers.Timer> preGameTimers,
-                    IDictionary<string, InviteSender> gameInvitesSender,
-                    IDictionary<string, Dictionary<string, InviteReceived>> gameInvitesReceiver,
+    // * 2026: All the live game data now comes from one shared GameState object (see GameState.cs)
+    public GameHub(GameState gameState,
                     IHubContext<GameHub> hubContext,
                     UserService userService)
     {
-        _connections = connections;
-        _connectionsUserId = connectionsUserId;
-        _gameRooms = gameRooms;
+        _connections = gameState.Connections;
+        _connectionsUserId = gameState.ConnectionsByUserId;
+        _gameRooms = gameState.GameRooms;
 
-        _privateGameRooms = privateGameRooms;
+        _gameTimers = gameState.GameTimers;
+        _preGameTimers = gameState.PreGameTimers;
 
-        _gameTimers = gameTimers;
-        _preGameTimers = preGameTimers;
-
-        _gameInviteSenders = gameInvitesSender;
-        _gameInviteReceivers = gameInvitesReceiver;
+        _gameInviteSenders = gameState.InviteSenders;
+        _gameInviteReceivers = gameState.InviteReceivers;
 
         paragraphs = new string[] {
             //"Cats, with their regal charm and independent spirit, should rule over humans. Their graceful presence and soothing purrs would create a peaceful, utopian world.",
@@ -399,13 +387,14 @@ public class GameHub : Hub
             //RoomName = userConnection.RoomName,
             //Paragraph = RandomParagraph(),
             Paragraph = newParagraph,
-            Connections = new Dictionary<string, UserConnection>()
+            // * 2026: Thread-safe dictionaries, because timers read these while players join/leave
+            Connections = new System.Collections.Concurrent.ConcurrentDictionary<string, UserConnection>()
             {
-                {Context.ConnectionId, userConnection }
+                [Context.ConnectionId] = userConnection
             },
-            ClientUserObjects = new Dictionary<string, UserConnection>()
+            ClientUserObjects = new System.Collections.Concurrent.ConcurrentDictionary<string, UserConnection>()
             {
-                { userConnection.Username, userConnection }
+                [userConnection.Username] = userConnection
             },
             Running = false,
             Time = new Time { CurrentTime=90, TimePassed=0, StartTime=0 },
@@ -462,14 +451,15 @@ public class GameHub : Hub
             { 
                 RoomId = userConnection.RoomId, 
                 Paragraph = new ParagraphGenerator().generate(), 
-                Connections = new Dictionary<string, UserConnection>() 
-            { 
-                {connectionId, userConnection } 
-            }, 
-                ClientUserObjects = new Dictionary<string, UserConnection>() 
-            {
-                { userConnection.Username, userConnection } 
-            }, 
+                // * 2026: Thread-safe dictionaries, because timers read these while players join/leave
+                Connections = new System.Collections.Concurrent.ConcurrentDictionary<string, UserConnection>()
+                {
+                    [connectionId] = userConnection
+                },
+                ClientUserObjects = new System.Collections.Concurrent.ConcurrentDictionary<string, UserConnection>()
+                {
+                    [userConnection.Username] = userConnection
+                }, 
                 Running = false, 
                 Time = new Time { CurrentTime = 90, TimePassed = 0, StartTime = 0 },
                 Waiting = true, 
@@ -608,15 +598,8 @@ public class GameHub : Hub
         userConnection.AverageWpm = user?.AverageWpm;
 
         // * - Remove the user from their previous game if they're still in it. THEN find a new game
-        if (userConnection.RoomId != null &&
-            _gameRooms.TryGetValue(userConnection.RoomId, out GameRoom previousRoom) &&
-            previousRoom.Connections.ContainsKey(Context.ConnectionId))
-        {
-            Console.WriteLine("\nRemoving from the current game\n");
-
-            await Groups.RemoveFromGroupAsync(Context.ConnectionId, previousRoom.RoomId);
-            previousRoom.Connections.Remove(Context.ConnectionId);
-        }
+        // * (This also deletes the old room if they were the last one in it.)
+        await RemoveFromCurrentRoom(userConnection);
 
         // * Reset the player's race values before joining a new game
         userConnection.Accuracy = 0;
@@ -735,45 +718,67 @@ public class GameHub : Hub
 
     public async Task LeaveRoom()
     {
+        UserConnection? userConnection = GetCurrentConnection();
 
-        if (_connections.TryGetValue(Context.ConnectionId, out UserConnection userConnection))
+        if (userConnection != null)
         {
-            GameRoom currRoom = _gameRooms[userConnection.RoomId] != null ? _gameRooms[userConnection.RoomId] : null;
-            // TODO: Don't completely remove their info from the gameRoom if the game has started. 
-
-            // Remove the user connection from the gameRoom (if they are still present)
-            if (currRoom != null &&
-                currRoom.Connections[Context.ConnectionId] != null)
-            {
-                currRoom.Connections.Remove(Context.ConnectionId);
-                Console.WriteLine("PLEASE REMOVE THE USER");
-                currRoom.ClientUserObjects.Remove(userConnection.Username);
-            }
-
-
-            // TODO: Add conditions to determine whether to destroy the gameRoom or not.
-            if (currRoom != null)
-            {
-
-                // Was that the last user? Dispose of the game
-                if (currRoom.Connections.Count <= 0)
-                {
-                    await DisposeGame(currRoom);
-                }
-                // Otherwise, if players are still there, re-send the gameRoom object
-                // to update the amount of players there.
-                else
-                {
-                    // Send the updated game room information the correct game room.
-                    await SendGameRoom(currRoom);
-
-
-                    await Clients.Group(userConnection.RoomId).SendAsync("ReceiveMessage",
-                        $"{userConnection.Username} has left {userConnection.RoomId}");
-                }
-
-            }
+            await RemoveFromCurrentRoom(userConnection);
         }
+    }
+
+    /**
+     * 2026: Safely removes the caller from the room they're in.
+     * Used by LeaveRoom, OnDisconnectedAsync (closing the tab) and FindRoom (finding a new game).
+     *
+     * SIMPLE TERMS: "This player left. Take them out of their room, and clean up the room if needed."
+     * - Never crashes if the room is already gone or they weren't in it.
+     * - Deletes the room (and its timers) when the last player leaves.
+     * - Ends the race early if everyone still in it has already finished.
+     * */
+    private async Task RemoveFromCurrentRoom(UserConnection userConnection)
+    {
+        string? roomId = userConnection.RoomId;
+
+        userConnection.RoomId = null;
+
+        if (roomId == null || !_gameRooms.TryGetValue(roomId, out GameRoom? currRoom))
+        {
+            return;
+        }
+
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomId);
+
+        // * Not in this room? Nothing to do.
+        if (!currRoom.Connections.Remove(Context.ConnectionId))
+        {
+            return;
+        }
+
+        // * Players who already finished a public race stay on the results board.
+        // * Everyone else is removed (private games always remove, so others can tell the host left).
+        if (!userConnection.Finished || currRoom.IsPrivateGame)
+        {
+            currRoom.ClientUserObjects.Remove(userConnection.Username);
+        }
+
+        // * Was that the last player? Delete the room and its timers.
+        if (currRoom.Connections.Count == 0)
+        {
+            await DisposeGame(currRoom);
+            return;
+        }
+
+        // * If everyone left in the race has finished, end it now instead of waiting for the timer
+        if (currRoom.Running && currRoom.ClientUserObjects.Values.All(player => player.FinalResults != null))
+        {
+            await EndGame(currRoom);
+        }
+        else
+        {
+            await SendGameRoom(currRoom);
+        }
+
+        await Clients.Group(roomId).SendAsync("ReceiveMessage", $"{userConnection.Username} has left the game");
     }
 
     /**
@@ -814,68 +819,35 @@ public class GameHub : Hub
 
     //This is a method that is automaticlaly called when a user disconnects from a group
     //We're overriding it to customize what happens...
-    public override async Task OnDisconnectedAsync(Exception exception)
+    public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        if (_connections.TryGetValue(Context.ConnectionId, out UserConnection userConnection))
+        if (_connections.TryGetValue(Context.ConnectionId, out UserConnection? userConnection))
         {
-            // TODO: Don't completely remove their info from the gameRoom the game has started. 
-
-            // Does the game still exist?
-            // Are they even in that game
-            //      - If not in the game, don't worry about it.
-            //      - if still in the game determine whether to destroy or not.
-
-
-            GameRoom currRoom = null;
-
-            if (userConnection.RoomId != null)
+            // * Take them out of their room (if any). Errors here must not stop the cleanup below.
+            try
             {
-                currRoom = _gameRooms[userConnection.RoomId] != null ? _gameRooms[userConnection.RoomId] : null;
-
+                await RemoveFromCurrentRoom(userConnection);
             }
-
-            if (currRoom != null)
+            catch (Exception ex)
             {
-
-                // 1. Remove the user completely from the game
-                if (currRoom.Connections[Context.ConnectionId] != null)
-                {
-                    currRoom.Connections.Remove(Context.ConnectionId);
-                    currRoom.ClientUserObjects.Remove(userConnection.Username);
-                }
-
-                // determine whether to destroy the gameRoom or not. Was that the last user?
-                if (_gameRooms[userConnection.RoomId].Connections.Count <= 0)
-                {
-
-                    await DisposeGame(currRoom);
-
-                }
-
-                else
-                {
-                    // Send the updated game room information to the correct game room.
-                    await SendGameRoom(currRoom);
-
-
-                    await Clients.Group(userConnection.RoomId).SendAsync("ReceiveMessage",
-                        $"{userConnection.Username} has left {userConnection.RoomId}");
-                }
-
+                Console.WriteLine($"ERROR removing {userConnection.Username} from their room: {ex.Message}");
             }
 
             Console.WriteLine($"{userConnection.Username} has disconnected. Removing them");
 
-            // Remove the user from the connections, and their current game room.
+            // Remove the user from the connections
             _connections.Remove(Context.ConnectionId);
-            _connectionsUserId.Remove(userConnection.UserId);
 
-
-            foreach(var connection in _connections)
+            // * Only remove the user id lookup if it belongs to THIS connection.
+            // * (They may still have another tab open with a newer connection.)
+            if (_connectionsUserId.TryGetValue(userConnection.UserId, out UserConnection? byUserId) &&
+                byUserId.ConnectionId == Context.ConnectionId)
             {
-                Console.WriteLine($"\n{connection.Value.Username} is still connected\n");
+                _connectionsUserId.Remove(userConnection.UserId);
             }
         }
+
+        await base.OnDisconnectedAsync(exception);
     }
 
     public override async Task OnConnectedAsync()
@@ -1109,15 +1081,14 @@ public class GameHub : Hub
          * of WPM, accuracy, and progress.
          * */
 
-        //1. Stop the timer
-
-        if (_gameTimers.ContainsKey(gameRoom.RoomId))
+        // * 2026: Only end a game once (the timer and the last finisher can both try to end it)
+        if (gameRoom.GameOver)
         {
-            Console.WriteLine("Stopping the timer");
-            _gameTimers[gameRoom.RoomId].Stop();
-            _gameTimers[gameRoom.RoomId].Dispose();
-            _gameTimers.Remove(gameRoom.RoomId);
+            return;
         }
+
+        //1. Stop the timer
+        StopAndRemoveTimer(_gameTimers, gameRoom.RoomId);
 
         // 2. Set the states of the game
         gameRoom.GameOver = true;
@@ -1136,19 +1107,34 @@ public class GameHub : Hub
          * Dispose of the game once all players have left.
          */
 
-        // 1. remove the timer
-        if (_gameTimers.ContainsKey(gameRoom.RoomId))
-        {
-            Console.WriteLine("Disposing the timer and the game");
-            _gameTimers[gameRoom.RoomId].Stop();
-            _gameTimers[gameRoom.RoomId].Dispose();
-            _gameTimers.Remove(gameRoom.RoomId);
-        }
+        // 1. remove BOTH timers
+        // * 2026 FIX: The pre-game countdown timer used to keep running after its room was deleted,
+        // * which could crash the server when it tried to start a game that no longer existed.
+        Console.WriteLine("Disposing the timers and the game");
+        StopAndRemoveTimer(_gameTimers, gameRoom.RoomId);
+        StopAndRemoveTimer(_preGameTimers, gameRoom.RoomId);
 
 
-        // 2. Remove the game. 
+        // 2. Remove the game.
         _gameRooms.Remove(gameRoom.RoomId);
 
+    }
+
+    /**
+     * 2026: Stops, cleans up, and removes a room's timer.
+     * Returns true only for the ONE caller that actually removed it, so two timer ticks
+     * happening at the same moment can't both act on it.
+     * */
+    private static bool StopAndRemoveTimer(IDictionary<string, System.Timers.Timer> timers, string roomId)
+    {
+        if (timers.TryGetValue(roomId, out System.Timers.Timer? timer) && timers.Remove(roomId))
+        {
+            timer.Stop();
+            timer.Dispose();
+            return true;
+        }
+
+        return false;
     }
 
     private async Task FinishPlayer(GameRoom gameRoom, UserConnection currUser)
@@ -1353,11 +1339,19 @@ public class GameHub : Hub
     }
 
     // Evnet handler function for each time interval of specific timers
+    // * 2026 NOTE: Timer handlers run on their own, outside any player's request. An error here
+    // * can't be sent to anyone and can crash the whole server, so they catch and log everything.
     private async Task OnGameTimerElapsed(object sender, ElapsedEventArgs e, GameRoom gameRoom, string roomId, IHubContext<GameHub> hubContext)
     {
-
-        if (_gameRooms.ContainsKey(roomId))
+        try
         {
+            // * The room was deleted (everyone left). Stop this timer.
+            if (!_gameRooms.ContainsKey(roomId))
+            {
+                StopAndRemoveTimer(_gameTimers, roomId);
+                return;
+            }
+
             if (gameRoom.Time.CurrentTime > 0)
             {
                 gameRoom.Time.CurrentTime--;
@@ -1374,41 +1368,48 @@ public class GameHub : Hub
 
             await SendGameRoom(gameRoom, hubContext);
         }
-
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ERROR in game timer for room {roomId}: {ex.Message}");
+        }
     }
 
     private async Task OnPreGameTimerElapsed(object sender, ElapsedEventArgs e, GameRoom gameRoom, string roomId, IHubContext<GameHub> hubContext)
     {
-        
-        if (gameRoom.PreGameTimer.CurrentTime > 0)
+        try
         {
-            gameRoom.PreGameTimer.CurrentTime--;
-        }
-        else
-        {
-
-            // TODO: 
-            //  1. Stop and dispose the preGameTimer
-            //  2. Start the game after the timer ends
-
-
-            // 1. Stop and dispose the timer
-            if (_preGameTimers.ContainsKey(gameRoom.RoomId))
+            // * The room was deleted before the countdown finished. Stop this timer.
+            if (!_gameRooms.ContainsKey(roomId))
             {
-                Console.WriteLine("Stopping the PRE GAME timer");
-                _preGameTimers[gameRoom.RoomId].Stop();
-                _preGameTimers[gameRoom.RoomId].Dispose();
-                _preGameTimers.Remove(gameRoom.RoomId);
+                StopAndRemoveTimer(_preGameTimers, roomId);
+                return;
             }
 
-            // Start the game 
-            await StartGame(gameRoom.RoomId, null);
+            if (gameRoom.PreGameTimer.CurrentTime > 0)
+            {
+                gameRoom.PreGameTimer.CurrentTime--;
+            }
+            else
+            {
+                // 1. Stop and dispose the timer.
+                // * Only the tick that actually removes the timer starts the game (prevents starting twice).
+                if (StopAndRemoveTimer(_preGameTimers, roomId))
+                {
+                    Console.WriteLine("Stopping the PRE GAME timer");
 
-            return;
+                    // 2. Start the game
+                    await StartGame(roomId, null);
+                }
 
+                return;
+            }
+
+            await SendGameRoom(gameRoom, hubContext);
         }
-
-        await SendGameRoom(gameRoom, hubContext);
+        catch (Exception ex)
+        {
+            Console.WriteLine($"ERROR in pre-game timer for room {roomId}: {ex.Message}");
+        }
     }
 
     /**********************************************
