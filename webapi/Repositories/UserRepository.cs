@@ -47,6 +47,19 @@ public class UserRepository
         await _context.SaveChangesAsync();
     }
 
+    // * 2026: Finds up to 10 users whose username STARTS WITH the search text (case-insensitive).
+    // * The person searching is left out of the results.
+    public async Task<List<User>> SearchUsers(string query, string excludeUserId)
+    {
+        string lowerQuery = query.ToLower();
+
+        return await _context.Users
+            .Where(u => u.UserId != excludeUserId && u.Username.ToLower().StartsWith(lowerQuery))
+            .OrderBy(u => u.Username)
+            .Take(10)
+            .ToListAsync();
+    }
+
     // * 2026: Is this username already used by someone? (Case-insensitive)
     public async Task<bool> UsernameExists(string username)
     {

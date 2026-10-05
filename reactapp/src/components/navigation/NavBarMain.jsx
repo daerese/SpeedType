@@ -23,6 +23,10 @@ import Avatar from "../profile/Avatar"
 import AddFriendIcon from '../svgIcons/AddFriendIcon';
 import RemoveFriendIcon from '../svgIcons/RemoveFriendIcon'
 
+import FriendSearch from '../profile/FriendSearch';
+import UserRow from '../profile/UserRow';
+import { getMyFriends } from '../../services/user.service.jsx';
+
 const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [], showInviteAlert, setShowInviteAlert }) => {
 
     // * Refs for the nav menus and menu toggle buttons
@@ -51,8 +55,12 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
 
     //console.log("The friend requests FROM THE NAVBAR: ", friendRequests)
 
+    // * 2026: The logged-in user's friends (with online status), loaded when the friends menu opens
+    const [myFriends, setMyFriends] = useState([])
+    const [myFriendsLoading, setMyFriendsLoading] = useState(false)
+
     // AUth0
-    const { user, isAuthenticated } = useAuth0();
+    const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
 
     //const { isAuthenticated } = useAuth0();
 
@@ -144,11 +152,33 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
 
     }, [friendRequests])
 
+    // * 2026: Each time the friends menu is opened, get the friends list with who's online RIGHT NOW
     useEffect(() => {
 
+        if (!requestsDropdownActive || !isAuthenticated) return;
 
+        const loadFriends = async () => {
 
-    }, [invitesReceived])
+            setMyFriendsLoading(true)
+
+            try {
+                const accessToken = await getAccessTokenSilently()
+
+                const { data } = await getMyFriends(accessToken)
+
+                setMyFriends(data ?? [])
+            }
+            catch (e) {
+                console.error("Could not load friends: ", e)
+            }
+            finally {
+                setMyFriendsLoading(false)
+            }
+        }
+
+        loadFriends()
+
+    }, [requestsDropdownActive])
 
     const toggleProfileDropdown = () => {
         setProfileDropdownActive(prev => !prev)
@@ -267,12 +297,17 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
 
                     </div>
 
-                    {/*friend requests dropdown*/}
-                    <div ref={navMenuRequestsRef} className={`${!requestsDropdownActive && "hidden"} absolute right-0 z-10 mt-2 w-72 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5`}>
+                    {/*friends dropdown: search, friend requests, and friends list*/}
+                    <div ref={navMenuRequestsRef} className={`${!requestsDropdownActive && "hidden"} absolute right-0 z-10 mt-2 w-80 max-h-[80vh] overflow-y-auto origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5`}>
                         <div className="py-1">
 
+                            {/* 2026: Search for players to add as friends */}
+                            <div className="p-2 text-left">
+                                <p className="font-semibold py-1 text-center">Find players</p>
+                                <FriendSearch />
+                            </div>
 
-                            <p className="font-semibold py-2">Friend requests</p>
+                            <p className="font-semibold py-2 border-t-2">Friend requests</p>
 
                             
 
@@ -347,6 +382,25 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
                                 }
 
                             </>
+
+                            {/* 2026: Friends list. Online friends are listed first. */}
+                            <p className="font-semibold py-2 border-t-2">
+                                Friends{myFriends.length > 0 && ` (${myFriends.filter(friend => friend.isOnline).length} online)`}
+                            </p>
+
+                            <div className="px-2 pb-2 border-t-2 pt-1">
+                                {
+                                    myFriendsLoading && myFriends.length === 0 ?
+                                        <p className="p-2 text-sm text-gray-500">Loading...</p>
+                                        :
+                                        myFriends.length > 0 ?
+                                            myFriends.map((friend) =>
+                                                <UserRow user={friend} showStatus={true} key={friend.username} />
+                                            )
+                                            :
+                                            <p className="p-2 text-sm text-gray-500">No friends yet. Search for players above!</p>
+                                }
+                            </div>
 
                         </div>
                     </div>

@@ -28,6 +28,8 @@ import UserCard from "../components/profile/UserCard";
 
 import StatsGrid from "../components/profile/StatsGrid";
 
+import FriendSearch from "../components/profile/FriendSearch";
+
 import AddFriendIcon from "../components/svgIcons/AddFriendIcon";
 import RemoveFriendIcon from "../components/svgIcons/RemoveFriendIcon";
 import Spinner from "../components/utils/Spinner";
@@ -852,7 +854,13 @@ const ProfilePage = ({
                             activeTab == 1 ?
 
                                 <>
-                                    
+
+                                    {/* 2026: Search for new players to add as friends */}
+                                    <div className="max-w-md mb-8">
+                                        <p className="font-semibold mb-2">Find players</p>
+                                        <FriendSearch />
+                                    </div>
+
                                     <div className="min-[890px]:grid-cols-2 max-sm:w-full max-[889px]:w-[80%] max-[889px]:mx-auto grid gap-x-24 gap-y-8">
                                         {
                                             friendsList.length > 0 ?

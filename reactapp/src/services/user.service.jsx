@@ -108,6 +108,51 @@ export const createCurrentUser = async (accessToken) => {
     };
 };
 
+/**
+ * 2026: Searches for players whose username starts with `query` (at least 2 characters).
+ * Returns up to 10 players: [{ username, profilePicturePath, color }]
+ */
+export const searchUsers = async (accessToken, query) => {
+    const config = {
+        // * encodeURIComponent keeps spaces/symbols in the search text from breaking the URL
+        url: `${apiServerUrl}/api/user/search?query=${encodeURIComponent(query)}`,
+        method: "GET",
+        headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+        },
+    };
+
+    const { data, error } = await callExternalApi({ config });
+
+    return {
+        data: data || null,
+        error,
+    };
+};
+
+/**
+ * 2026: Gets the logged-in user's friends, with who's online right now (online friends first).
+ * Returns: [{ username, profilePicturePath, color, isOnline }]
+ */
+export const getMyFriends = async (accessToken) => {
+    const config = {
+        url: `${apiServerUrl}/api/user/friends`,
+        method: "GET",
+        headers: {
+            "content-type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+        },
+    };
+
+    const { data, error } = await callExternalApi({ config });
+
+    return {
+        data: data || null,
+        error,
+    };
+};
+
 export const getUser = async (accessToken, userId) => {
     const config = {
         url: `${apiServerUrl}/api/user/get-user?userId=${userId}`,

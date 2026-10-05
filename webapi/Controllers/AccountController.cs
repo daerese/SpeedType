@@ -54,11 +54,15 @@ public class AccountController : Controller
 
     private readonly IConfiguration _configuration;
 
-    public AccountController(UserService userService, IHttpClientFactory httpClientFactory, IConfiguration configuration)
+    // * 2026: The live game data. Used to tell which friends are online right now.
+    private readonly GameState _gameState;
+
+    public AccountController(UserService userService, IHttpClientFactory httpClientFactory, IConfiguration configuration, GameState gameState)
     {
         _userService = userService;
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
+        _gameState = gameState;
     }
 
     /******************************
@@ -194,6 +198,76 @@ public class AccountController : Controller
         User user = await _userService.CreateUser(userId, desiredUsername);
 
         return Ok(user);
+    }
+
+    /**
+     * 2026: Searches for players by username (for adding friends).
+     * EX: /api/user/search?query=yu  --> yuna, yuji
+     *
+     * - Needs at least 2 characters, and returns at most 10 players.
+     * - Only returns what the search results show (username, avatar, color).
+     * */
+    [HttpGet("search")]
+    [Authorize]
+    public async Task<IActionResult> SearchUsers([FromQuery] string? query)
+    {
+        string? myUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(myUserId))
+        {
+            return Unauthorized();
+        }
+
+        query = query?.Trim();
+
+        if (string.IsNullOrEmpty(query) || query.Length < 2)
+        {
+            return Ok(new List<object>());
+        }
+
+        List<User> users = await _userService.SearchUsers(query, myUserId);
+
+        return Ok(users.Select(u => new
+        {
+            u.Username,
+            u.ProfilePicturePath,
+            u.Color
+        }));
+    }
+
+    /**
+     * 2026: Returns the logged-in user's friends, with whether each one is online right now.
+     * Online friends come first. Used by the friends menu in the navbar.
+     * */
+    [HttpGet("friends")]
+    [Authorize]
+    public async Task<IActionResult> GetMyFriends()
+    {
+        string? myUserId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(myUserId))
+        {
+            return Unauthorized();
+        }
+
+        // * Each friendship stores two user ids. The one that isn't mine is my friend.
+        List<string> friendIds = (await _userService.GetFriends(myUserId))
+            .Select(friend => friend.UserId1 == myUserId ? friend.UserId2 : friend.UserId1)
+            .ToList();
+
+        List<User> friends = await _userService.GetFriendUsers(friendIds);
+
+        return Ok(friends
+            .Select(u => new
+            {
+                u.Username,
+                u.ProfilePicturePath,
+                u.Color,
+                // * "Online" = they currently have the game server connection open
+                IsOnline = _gameState.ConnectionsByUserId.ContainsKey(u.UserId)
+            })
+            .OrderByDescending(friend => friend.IsOnline)
+            .ThenBy(friend => friend.Username));
     }
 
     [HttpGet("get-user")]

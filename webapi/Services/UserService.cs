@@ -190,6 +190,12 @@ public class UserService
         return newUser;
     }
 
+    // * 2026: Used by the friend search box
+    public async Task<List<User>> SearchUsers(string query, string excludeUserId)
+    {
+        return await _userRepository.SearchUsers(query, excludeUserId);
+    }
+
     public async Task UpdateUser(User updatedUserData)
     {
         /**
