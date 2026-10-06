@@ -26,6 +26,7 @@ import RemoveFriendIcon from '../svgIcons/RemoveFriendIcon'
 import FriendSearch from '../profile/FriendSearch';
 import UserRow from '../profile/UserRow';
 import { getMyFriends } from '../../services/user.service.jsx';
+import { useGameConnection } from '../../context/GameConnectionContext.jsx';
 
 const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [], showInviteAlert, setShowInviteAlert }) => {
 
@@ -61,6 +62,9 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
 
     // AUth0
     const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+
+    // * 2026: Game connection actions (see GameConnectionContext.jsx)
+    const { declineInvite } = useGameConnection()
 
     //const { isAuthenticated } = useAuth0();
 
@@ -436,6 +440,7 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
 
                                                                 <Avatar
                                                                     avatar={invite.senderProfilePicturePath}
+                                                                    color={invite.senderColor}
                                                                     size={45}
 
                                                                 />
@@ -470,13 +475,16 @@ const NavBarMain = ({ friendRequests, updateFriendRequest, invitesReceived = [],
                                                             {/*    Decline*/}
                                                             {/*</button>*/}
 
-                                                            <div>
-                                                                <a href={`game/private/${invite.roomId}`}
-                                                                    className="duration-200 rounded-md block bg-green-500 hover:bg-green-600 font-semibold text-white py-1 px-4">Join</a>
-                                                            </div>
-                                                            {/*<div>*/}
-                                                            {/*    <button className="rounded-md block bg-red-500 font-semibold text-white py-1 px-4">Decline</button>*/}
-                                                            {/*</div>*/}
+                                                            {/* 2026 FIX: Starts with "/" so the link works from any page (not just the home page) */}
+                                                            <a href={`/game/private/${invite.roomId}`}
+                                                                className="duration-200 rounded-md block bg-green-500 hover:bg-green-600 font-semibold text-white py-1 px-4">Join</a>
+
+                                                            {/* 2026: Decline removes the invite */}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => declineInvite && declineInvite(invite.senderUserId)}
+                                                                className="duration-200 rounded-md block border border-gray-300 hover:bg-gray-100 font-semibold py-1 px-3"
+                                                            >Decline</button>
 
                                                         </div>
                                                     </div>

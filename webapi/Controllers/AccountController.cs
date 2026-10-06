@@ -260,6 +260,8 @@ public class AccountController : Controller
         return Ok(friends
             .Select(u => new
             {
+                // * Needed to invite a friend to a private game
+                u.UserId,
                 u.Username,
                 u.ProfilePicturePath,
                 u.Color,

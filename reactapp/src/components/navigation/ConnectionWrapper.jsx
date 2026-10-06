@@ -22,6 +22,8 @@ import { useAuth0 } from "@auth0/auth0-react";
 
 import { useDbUser } from '../../context/DbUserContext.jsx'
 
+import { GameConnectionContext } from '../../context/GameConnectionContext.jsx'
+
 const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
     /**
@@ -390,6 +392,17 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
 
     /************
+     * 2026: Private game invites
+     ******************/
+    const declineInvite = async (senderUserId) => {
+
+        // * The server removes the invite and sends back the updated invites list
+        if (connection && connection.state === "Connected") {
+            await connection.invoke("DeclineInvite", senderUserId)
+        }
+    }
+
+    /************
      * Functions related to user's friend requests and friends list
      ******************/
     const updateFriendRequest = async (friendRequestObject) => {
@@ -608,7 +621,8 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
     return (
 
-        <>
+        // * 2026: Lets any component (EX: the navbar) use game connection actions like declining invites
+        <GameConnectionContext.Provider value={{ declineInvite }}>
 
             {
                 //userLoading || connectionLoading ?
@@ -804,7 +818,7 @@ const ConnectionWrapper = ({ authLoading, user, component, page }) => {
 
 
 
-        </>
+        </GameConnectionContext.Provider>
 
 
     )

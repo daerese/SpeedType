@@ -162,6 +162,9 @@ public class GameHub : Hub
     // Highest WPM we accept. Anything faster is treated as cheating.
     private const int MaxWpm = 250;
 
+    // 2026: Most players allowed in one room (the game screen has space for 5)
+    private const int MaxPlayersPerRoom = 5;
+
     // The caller's UserConnection (created in InitConnection), or null if they haven't initialized
     private UserConnection? GetCurrentConnection()
     {
@@ -474,6 +477,10 @@ public class GameHub : Hub
             //_privateGameRooms[userConnection.Link] = currentGameRoom;
             _gameRooms[userConnection.RoomId] = currentGameRoom;
 
+            // * 2026: New room, so the host starts with an empty "invites sent" list
+            _gameInviteSenders.Remove(userConnection.UserId);
+            await Clients.Caller.SendAsync("GetInvitesSent", new Dictionary<string, bool>());
+
 
             // 3. Send the private gameRoom
             await SendGameRoom(currentGameRoom);
@@ -512,14 +519,10 @@ public class GameHub : Hub
         if (roomId != null && _gameRooms.TryGetValue(roomId, out currentGameRoom))
         {
 
-            // ? Check the state of the gameRoom and ensure that it isn't in progress.
-            if (currentGameRoom.IsPrivateGame)
-            {
-                if (!currentGameRoom.Running && !currentGameRoom.GameOver)
-                {
-                    isJoinable = true;
-                }
-            }
+            // ? Check the state of the gameRoom and ensure that it isn't in progress (or full).
+            // * 2026: Already in this room (EX: refreshed the page)? Also fine.
+            isJoinable = IsJoinablePrivateRoom(currentGameRoom) ||
+                         (currentGameRoom.IsPrivateGame && currentGameRoom.Connections.ContainsKey(Context.ConnectionId));
 
         }
 
@@ -548,10 +551,21 @@ public class GameHub : Hub
 
             if (_gameInviteReceivers.TryGetValue(userId, out Dictionary<string, InviteReceived>? invites))
             {
-                foreach (string senderId in invites.Where(invite => invite.Value.RoomId == roomId).Select(invite => invite.Key).ToList())
+                lock (invites)
                 {
-                    invites.Remove(senderId);
+                    foreach (string senderId in invites.Where(invite => invite.Value.RoomId == roomId).Select(invite => invite.Key).ToList())
+                    {
+                        invites.Remove(senderId);
+                    }
                 }
+            }
+
+            // * 2026: Update their invites menu, and if the room is now full, everyone else's invites too
+            await PushInvitesToUser(userId);
+
+            if (currentGameRoom.Connections.Count >= MaxPlayersPerRoom)
+            {
+                await RefreshInvitesForRoom(roomId);
             }
 
 
@@ -623,8 +637,9 @@ public class GameHub : Hub
 
                 Console.WriteLine("FOUND A GAME, CHECKING");
 
-                // Make sure the game hasn't started and isn't private
-                if (!gameRoom.Running && !gameRoom.GameOver && !gameRoom.IsPrivateGame)
+                // Make sure the game hasn't started, isn't private, and isn't full (2026)
+                if (!gameRoom.Running && !gameRoom.GameOver && !gameRoom.IsPrivateGame &&
+                    gameRoom.Connections.Count < MaxPlayersPerRoom)
                 {
 
                     // Does their average WPM fall in the range of this game?
@@ -766,6 +781,12 @@ public class GameHub : Hub
         {
             await DisposeGame(currRoom);
             return;
+        }
+
+        // * 2026: Update invites to this private game (EX: the host left, so they can't be used anymore)
+        if (currRoom.IsPrivateGame)
+        {
+            await RefreshInvitesForRoom(roomId);
         }
 
         // * If everyone left in the race has finished, end it now instead of waiting for the timer
@@ -1027,6 +1048,12 @@ public class GameHub : Hub
 
         await SendGameRoom(gameRoom, _hubContext);
 
+        // * 2026: The race started, so invites to this private game can't be used anymore
+        if (gameRoom.IsPrivateGame)
+        {
+            await RefreshInvitesForRoom(gameRoom.RoomId);
+        }
+
 
     }
 
@@ -1117,6 +1144,12 @@ public class GameHub : Hub
 
         // 2. Remove the game.
         _gameRooms.Remove(gameRoom.RoomId);
+
+        // * 2026: Anyone invited to this private game should no longer see the invite
+        if (gameRoom.IsPrivateGame)
+        {
+            await RefreshInvitesForRoom(gameRoom.RoomId);
+        }
 
     }
 
@@ -1416,6 +1449,14 @@ public class GameHub : Hub
      * Private game and Invites
      * ********************************************/
 
+    /**
+     * The host invites an online friend to their private game.
+     * 
+     * 2026 SECURITY + FIXES:
+     * - The sender's info comes from the server, not the browser.
+     * - You can only invite FRIENDS, to a private room you're in, that can still be joined.
+     * - The invite goes to every tab the friend has open (Clients.User), not just one.
+     * */
     public async Task SendInvite(string senderUserId,
                                 string senderUsername,
                                 string senderProfilePicturePath,
@@ -1425,165 +1466,172 @@ public class GameHub : Hub
 
         Console.WriteLine("SendInvite function called...");
 
-        // * 2026 SECURITY: The sender's info comes from the server, not the browser,
-        // * and they can only invite people to a private room they're in.
         UserConnection? sender = GetCurrentConnection();
         GameRoom? inviteRoom = GetCallersRoom(roomId);
 
-        if (sender == null || inviteRoom == null || !inviteRoom.IsPrivateGame ||
+        if (sender == null || inviteRoom == null || !IsJoinablePrivateRoom(inviteRoom) ||
             string.IsNullOrEmpty(receiverUserId) || receiverUserId == sender.UserId)
         {
             return;
         }
 
-        senderUserId = sender.UserId;
-        senderUsername = sender.Username;
-        senderProfilePicturePath = sender.ProfileImg ?? "";
-
-        // 1. Create an entry in GameInvitesSender
-
-        // 2. Add property in gameInvitesReceiver
-
-        // 3. SendAsync to sender and receiver
-
-
-        // 1. Check if the player has already sent invites / exists in the invites collection
-        // a. If so, add the new invite
-        // b. otherwise, create a new entry in _gameInviteSenders and store the invite
-        if (_gameInviteSenders.TryGetValue(senderUserId, out InviteSender inviteSender))
+        // * Only friends can be invited
+        if (await _userService.GetSingleFriend(sender.UserId, receiverUserId) == null)
         {
+            return;
+        }
 
-            //senderInvites.Add(userId, false);
+        senderUserId = sender.UserId;
 
-            // * 2026: If these invites were for an older room, start a fresh list for this room
+        // 1. Remember who the host has invited (so their invite modal shows "Invite Sent")
+        InviteSender inviteSender = _gameInviteSenders.TryGetValue(senderUserId, out InviteSender? existingSender) ?
+            existingSender :
+            new InviteSender { RoomId = roomId, InvitesSent = new Dictionary<string, bool>() };
+
+        lock (inviteSender)
+        {
+            // * If these invites were for an older room, start a fresh list for this room
             if (inviteSender.RoomId != roomId)
             {
                 inviteSender.RoomId = roomId;
                 inviteSender.InvitesSent.Clear();
             }
 
-            // * [] instead of .Add() so inviting the same person twice doesn't crash
             inviteSender.InvitesSent[receiverUserId] = false;
-
-            Dictionary<string, bool> invitesSentDict = inviteSender.InvitesSent;
-
-            await Clients.Client(Context.ConnectionId).SendAsync("GetInvitesSent", invitesSentDict);
-
-        }
-        else
-        {
-
-            InviteSender newInviteSender = new InviteSender()
-            {
-                RoomId = roomId,
-                InvitesSent = new Dictionary<string, bool>
-                {
-                    {receiverUserId, false }
-                }
-            };
-
-            _gameInviteSenders[senderUserId] = newInviteSender;
-
-
-            Dictionary<string, bool> invitesSentDict = newInviteSender.InvitesSent;
-
-            await Clients.Client(Context.ConnectionId).SendAsync("GetInvitesSent", invitesSentDict);
         }
 
+        _gameInviteSenders[senderUserId] = inviteSender;
+
+        await Clients.Caller.SendAsync("GetInvitesSent", inviteSender.InvitesSent);
 
 
+        // 2. Save the invite for the receiver. A newer invite from the same host replaces the old one.
+        Dictionary<string, InviteReceived> invitesReceived =
+            _gameInviteReceivers.TryGetValue(receiverUserId, out Dictionary<string, InviteReceived>? existingInvites) ?
+            existingInvites :
+            new Dictionary<string, InviteReceived>();
 
-        // 2. Check if the receiver of the invite is online before sending it
-        string receiverConnectionId = null;
-
-        if (_connectionsUserId.TryGetValue(receiverUserId, out UserConnection user))
+        lock (invitesReceived)
         {
-            receiverConnectionId = user.ConnectionId;
-        }
-
-        // 3. Check if the player has already received invites / exists in the invites collection
-        // a. If so, add the new invite
-        // b. else, create a new entry in _gameInviteReceivers and store the invite
-        if (_gameInviteReceivers.TryGetValue(receiverUserId, out Dictionary<string, InviteReceived> invitesReceived))
-        {
-
-            InviteReceived inviteReceived = new InviteReceived
-            {
-
-                SenderUserId = senderUserId,
-                RoomId = roomId,
-                SenderUsername = senderUsername,
-                SenderProfilePicturePath = senderProfilePicturePath,
-                
-
-            };
-
-            // * [] instead of .Add() so a second invite from the same person replaces the old one (no crash)
-            invitesReceived[senderUserId] = inviteReceived;
-
-
-            // * Send the new invites to the receiver if they're online
-            if (receiverConnectionId != null)
-            {
-
-                // ? The frontend React method receiving this collection must receive it as a list 
-                List<InviteReceived> invitesReceivedList = invitesReceived.Values.ToList();
-
-                await Clients.Client(receiverConnectionId).SendAsync("GetInvitesReceived", invitesReceivedList);
-            }
-
-        }
-
-        else
-        {
-
-            // 1. Create a new inviteReceived object and store it in a dictionary
-            InviteReceived newInviteReceived = new InviteReceived
+            invitesReceived[senderUserId] = new InviteReceived
             {
                 RoomId = roomId,
                 SenderUserId = senderUserId,
-                SenderUsername = senderUsername,
-                SenderProfilePicturePath = senderProfilePicturePath,
+                SenderUsername = sender.Username,
+                SenderProfilePicturePath = sender.ProfileImg ?? "",
+                SenderColor = sender.Color
             };
-
-            Dictionary<string, InviteReceived> invitesReceivedDict = new Dictionary<string, InviteReceived>
-            {
-                { senderUserId, newInviteReceived }
-            };
-
-            // 2. Create an entry in the _gameInviteReceivers collection
-
-            _gameInviteReceivers[receiverUserId] = invitesReceivedDict;
-
-
-            // * Send the new invites to the receiver if they're online
-            if (receiverConnectionId != null)
-            {
-
-                List<InviteReceived> invitesReceivedList = invitesReceivedDict.Values.ToList();
-
-                await Clients.Client(receiverConnectionId).SendAsync("GetInvitesReceived", invitesReceivedList);
-
-
-            }
-
         }
 
+        _gameInviteReceivers[receiverUserId] = invitesReceived;
+
+
+        // 3. Send the updated invites to the receiver (all of their tabs). "GetInvitesReceived" shows the pop-up alert.
+        await _hubContext.Clients.User(receiverUserId).SendAsync("GetInvitesReceived", GetValidInvites(receiverUserId));
+
+    }
+
+    /**
+     * 2026: The player declines (dismisses) an invite from the navbar.
+     * */
+    public async Task DeclineInvite(string senderUserId)
+    {
+        string? myUserId = CurrentUserId;
+
+        if (string.IsNullOrEmpty(myUserId) || senderUserId == null)
+        {
+            return;
+        }
+
+        if (_gameInviteReceivers.TryGetValue(myUserId, out Dictionary<string, InviteReceived>? invites))
+        {
+            lock (invites)
+            {
+                invites.Remove(senderUserId);
+            }
+        }
+
+        await PushInvitesToUser(myUserId);
     }
 
     private async Task GetInvitesReceived(string userId)
     {
+        await Clients.Caller.SendAsync("InitInvitesReceived", GetValidInvites(userId));
+    }
 
-        if (_gameInviteReceivers.TryGetValue(userId, out Dictionary<string, InviteReceived> invitesReceived))
+    /**
+     * 2026: Can players still join this private room? (It exists, hasn't started, and isn't full.)
+     * */
+    private bool IsJoinablePrivateRoom(GameRoom gameRoom)
+    {
+        return gameRoom.IsPrivateGame &&
+            !gameRoom.Running &&
+            !gameRoom.GameOver &&
+            gameRoom.Connections.Count < MaxPlayersPerRoom &&
+            // * The host must still be there (only the host can start the game)
+            gameRoom.ClientUserObjects.ContainsKey(gameRoom.PrivateGameHostUsername);
+    }
+
+    /**
+     * 2026: Returns a player's invites, after throwing away any that can't be used anymore
+     * (the room was deleted, the game already started, or it's full).
+     * 
+     * SIMPLE TERMS: "Which of my invites still work?"
+     * */
+    private List<InviteReceived> GetValidInvites(string userId)
+    {
+        if (!_gameInviteReceivers.TryGetValue(userId, out Dictionary<string, InviteReceived>? invites))
         {
-
-            List<InviteReceived> invitesReceivedList = invitesReceived.Values.ToList();
-
-            await Clients.Client(Context.ConnectionId).SendAsync("InitInvitesReceived", invitesReceivedList);
-
-
+            return new List<InviteReceived>();
         }
 
+        lock (invites)
+        {
+            foreach (string senderId in invites.Keys.ToList())
+            {
+                bool stillJoinable = _gameRooms.TryGetValue(invites[senderId].RoomId, out GameRoom? room) &&
+                                     IsJoinablePrivateRoom(room);
+
+                if (!stillJoinable)
+                {
+                    invites.Remove(senderId);
+                }
+            }
+
+            return invites.Values.ToList();
+        }
+    }
+
+    /**
+     * 2026: Sends a player their current (valid) invites WITHOUT the pop-up alert,
+     * to all of their open tabs. Uses _hubContext so it also works from timers.
+     * */
+    private Task PushInvitesToUser(string userId)
+    {
+        return _hubContext.Clients.User(userId).SendAsync("InitInvitesReceived", GetValidInvites(userId));
+    }
+
+    /**
+     * 2026: When a private room changes (starts, is deleted, or fills up), update the invites
+     * menu of everyone who was invited to it, so they don't see a "Join" button that won't work.
+     * */
+    private async Task RefreshInvitesForRoom(string roomId)
+    {
+        List<string> invitedUserIds = _gameInviteReceivers
+            .Where(entry =>
+            {
+                lock (entry.Value)
+                {
+                    return entry.Value.Values.Any(invite => invite.RoomId == roomId);
+                }
+            })
+            .Select(entry => entry.Key)
+            .ToList();
+
+        foreach (string userId in invitedUserIds)
+        {
+            await PushInvitesToUser(userId);
+        }
     }
 
 

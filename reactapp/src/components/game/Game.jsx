@@ -445,13 +445,50 @@ const Game = ({ gameRoom,
                 
 
                 {
-                    !isPreviewMode ? 
-                    <Timer
-                        isMainTimer={true}
-                        time={time}
-                        running={running}
-                        gameOver={gameOver}
-                        />
+                    !isPreviewMode ?
+                    // * 2026: Before the race, a status badge takes the timer's place
+                    // * (same height, so nothing jumps when the race starts)
+                    <div className="flex justify-center items-center mb-4 min-h-[3rem] text-center">
+                        {
+                            gameRoom && !gameRoom.running && !gameRoom.gameOver ?
+
+                                gameRoom.isPreGame ?
+
+                                    // * Countdown before the race
+                                    <div className="inline-flex items-center gap-3 rounded-full bg-amber-50 border border-amber-200 text-amber-900 pl-5 pr-2 py-1.5 font-medium sm:text-lg">
+                                        Starting in
+                                        <span className="w-9 h-9 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-lg">
+                                            {preGameTime}
+                                        </span>
+                                    </div>
+
+                                    :
+
+                                    // * Waiting for players / the host
+                                    <div className="inline-flex items-center gap-2.5 rounded-full bg-sky-50 border border-sky-200 text-sky-800 px-5 py-2 font-medium sm:text-lg">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-pulse shrink-0"></span>
+                                        {
+                                            isPrivateGame ?
+                                                // * The host is told what to do, everyone else waits for the host
+                                                gameRoom.privateGameHostUsername === currUsername ?
+                                                    "Invite players, then click Start Game"
+                                                    :
+                                                    "Waiting for the host to start..."
+                                                :
+                                                "Waiting for players to join..."
+                                        }
+                                    </div>
+
+                                :
+
+                                <Timer
+                                    time={time}
+                                    running={running}
+                                    gameOver={gameOver}
+                                    classString="text-2xl"
+                                />
+                        }
+                    </div>
                         :
                     <p className="text-center text-xl">Game Preview</p>
                 }
@@ -548,7 +585,9 @@ const Game = ({ gameRoom,
                                                         >Restart Game</button>
                                                         :
                                                         <button className="inline-block cursor-pointer text-white bg-sky-500 hover:bg-sky-600 font-medium rounded-lg text-sm px-5 py-2.5 disabled:opacity-50 disabled:hover:bg-sky-500 disabled:hover:cursor-default  focus:ring-4 focus:ring-sky-300"
-                                                            onClick={startPrivateGame}
+                                                            // * 2026 FIX: Must be an arrow function. With onClick={startPrivateGame}, React passes
+                                                            // * the click event as "restartGame", which made Start Game ask the server to RESTART instead.
+                                                            onClick={() => startPrivateGame(false)}
                                                             disabled={gameRoom.running || gameRoom.isPreGame}
                                                         >Start Game</button>
                                                 }
@@ -587,38 +626,6 @@ const Game = ({ gameRoom,
 
                 
 
-                {/*Display message at the top that shows the state of the game. Directly in front of the timer*/}
-                {
-
-                    
-                    gameRoom && !gameRoom.running && !gameRoom.gameOver &&
-                    <>
-                        <div className="absolute bg-white top-0 left-1/2 flex items-center gap-2"
-                            style={{transform: "translateX(-50%)"}}>
-
-                                {
-                                    gameRoom.isPreGame ? 
-                                    <p className="text-2xl">
-                                        Starting in <span className="font-semibold">{preGameTime}</span>
-                                    </p>
-                                    :
-                                    <>
-                                        <div className="w-4 h-4 bg-black rounded-full bg-sky-300 animate-pulse"></div>
-
-                                        {
-                                            isPrivateGame ? 
-                                                <p className="text-2xl">Waiting for the host to start...</p>
-                                                :
-                                                <p className="text-2xl">Waiting for players to join...</p>
-                                        }
-                                        
-                                        
-                                    </>
-                                    
-                                }
-                        </div>
-                    </>
-                }
 
 
                 {/*Modal for inviting online friends. Only available to the host*/}
@@ -633,17 +640,14 @@ const Game = ({ gameRoom,
                             <PlayerInvitesModal
                                 showModal={showInvitesModal}
                                 setShowModal={setShowInvitesModal}
-                                inviteUrl={`https://localhost:5173/game/private/${gameRoom.roomId}`}
-                                onlineFriends={onlineFriends}
+                                // * 2026: Uses the site's real address, so the link also works once the app is deployed
+                                inviteUrl={`${window.location.origin}/game/private/${gameRoom.roomId}`}
 
                                 connection={connection}
 
                                 invitesSent={invitesSent}
 
                                 roomId={gameRoom.roomId}
-                                currUsername={currUsername}
-                                currUserId={currUserId}
-                                currProfileImg={currProfileImg}
                             />
                         }
 
@@ -652,15 +656,6 @@ const Game = ({ gameRoom,
 
 
 
-                {/*invite url for testing purposes*/}
-                {
-                    isPrivateGame && gameRoom ? 
-                        <p>https://localhost:5173/game/private/{gameRoom.roomId}</p>
-                        :
-                        <></>
-                    
-
-                }
 
                 
 
